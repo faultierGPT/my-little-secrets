@@ -14,9 +14,18 @@ dependencies {
     implementation(libs.jna) // lazysodium uses JNA NativeLong in its public API
     implementation(libs.kotlinx.serialization.json)
 
+    // Networking + sync (Phase 3). Engine is injectable; CIO is the default JVM/Android engine.
+    implementation(libs.kotlinx.coroutines.core)
+    implementation(libs.ktor.client.core)
+    implementation(libs.ktor.client.content.negotiation)
+    implementation(libs.ktor.serialization.kotlinx.json)
+    implementation(libs.ktor.client.cio)
+
     testImplementation(platform(libs.junit.bom))
     testImplementation(libs.junit.jupiter)
     testRuntimeOnly(libs.junit.platform.launcher)
+    testImplementation(libs.ktor.client.mock)
+    testImplementation(libs.kotlinx.coroutines.test)
 }
 
 kotlin {
