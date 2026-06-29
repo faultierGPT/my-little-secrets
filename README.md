@@ -1,1 +1,54 @@
 # my-little-secrets
+
+A **zero-knowledge, end-to-end-encrypted notes system**. Notes are encrypted and decrypted only
+on your own devices; the server stores opaque ciphertext it is architecturally incapable of
+reading. Lose the master password (with no recovery key) and the data is cryptographically gone —
+by design.
+
+> **Read [`SECURITY.md`](SECURITY.md) first.** It is the canonical threat model and crypto
+> contract. [`ARCHITECTURE.md`](ARCHITECTURE.md) covers structure; [`RELEASE.md`](RELEASE.md)
+> covers signing/verification.
+
+## Components
+
+| Module | What it is | Status |
+|---|---|---|
+| [`core/`](core/) | Shared **Kotlin crypto core** — the security boundary, used by both clients | ✅ built + tested |
+| [`server/`](server/) | **Ktor** sync server, stores only ciphertext (PostgreSQL; H2 for tests) | ✅ built + tested |
+| `core/` networking | API client + sync + encrypted offline cache | ⏳ Phase 3 |
+| `android/` | **Jetpack Compose** client (signed APK) | ⏳ Phase 4 |
+| `desktop/` | **Pure Java + JavaFX** client (GPG-signed AppImage/.deb/.rpm) | ⏳ Phase 5 |
+| `design/` | Toolkit-neutral design tokens + Compose/JavaFX theme mappers | ⏳ Phase 4 |
+
+## Crypto in one box (full detail in `SECURITY.md`)
+
+```
+masterKey        = Argon2id(password, salt, kdfParams)        (never leaves device)
+authKey          = crypto_kdf(masterKey, "auth")             (server stores only Argon2id(authKey))
+keyEncryptionKey = crypto_kdf(masterKey, "kek")              (never leaves device)
+accountKey       = random 32 bytes                           (the real data key)
+wrappedAccountKey= XChaCha20Poly1305(accountKey, kek)
+noteCiphertext   = XChaCha20Poly1305(JSON{title,body,tags}, accountKey)
+```
+
+All primitives are **libsodium** (via lazysodium). Nothing is hand-rolled.
+
+## Build & test
+
+```bash
+./gradlew test            # crypto core + server suites (real libsodium, embedded H2)
+./gradlew :core:test      # crypto core only
+./gradlew :server:test    # server only
+docker compose up --build # run the server locally with PostgreSQL
+```
+
+Toolchain: JDK 21, Gradle via the committed wrapper (`./gradlew`). Dependency versions are
+pinned in [`gradle/libs.versions.toml`](gradle/libs.versions.toml), verified against current
+stable at build time.
+
+## What's protected vs. not (honestly)
+
+- **Protected:** note titles/bodies/tags, the master password, and every key derived from it.
+- **Not protected:** metadata — that an account exists, the email, note count, approximate
+  ciphertext sizes, timestamps — and a compromised client device. E2EE defends against a hostile
+  server, not malware on your own phone/laptop.

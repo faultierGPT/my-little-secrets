@@ -1,0 +1,21 @@
+<configuration>
+    <!--
+      Logging policy (SECURITY.md §5): NEVER log request/response bodies, headers, tokens,
+      authKeys, ciphertext, or emails. The pattern below emits only timestamp, level, logger,
+      and message. CallLogging is configured in code to print only "METHOD path -> status".
+    -->
+    <appender name="STDOUT" class="ch.qos.logback.core.ConsoleAppender">
+        <encoder>
+            <pattern>%d{yyyy-MM-dd HH:mm:ss.SSS} %-5level %logger{36} - %msg%n</pattern>
+        </encoder>
+    </appender>
+
+    <root level="INFO">
+        <appender-ref ref="STDOUT"/>
+    </root>
+
+    <!-- Hikari/Netty can be chatty at DEBUG and may surface connection strings; keep at INFO. -->
+    <logger name="com.zaxxer.hikari" level="INFO"/>
+    <logger name="io.netty" level="INFO"/>
+    <logger name="org.postgresql" level="WARN"/>
+</configuration>

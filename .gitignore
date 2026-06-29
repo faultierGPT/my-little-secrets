@@ -1,0 +1,30 @@
+# Build output
+.gradle/
+build/
+**/build/
+out/
+
+# IDE
+.idea/
+*.iml
+.vscode/
+
+# Local env / tooling
+local.properties
+*.log
+
+# SECRETS — never commit signing material or keystores (see SECURITY.md / RELEASE.md)
+*.jks
+*.keystore
+*.p12
+*.pem
+*.key
+keystore.properties
+signing.properties
+*.gpg
+secring.*
+.env
+.env.*
+
+# OS
+.DS_Store

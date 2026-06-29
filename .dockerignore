@@ -1,0 +1,11 @@
+.git
+**/build
+.gradle
+*.jks
+*.keystore
+*.p12
+.env
+.env.*
+android/
+desktop/
+**/*.md
