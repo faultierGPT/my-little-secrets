@@ -22,6 +22,7 @@ class AppDeps(
     val notes: NoteRepository,
     val sessions: SessionRepository,
     val loginLimiter: RateLimiter,
+    val loginEmailLimiter: RateLimiter,
     val now: () -> Long,
 ) {
     companion object {
@@ -32,7 +33,10 @@ class AppDeps(
                 users = UserRepository(db),
                 notes = NoteRepository(db),
                 sessions = SessionRepository(db),
+                // Per-(email,IP) throttle plus a per-email backstop that holds even when the source IP
+                // rotates (see Config.loginEmailMaxAttempts). Both gate every auth attempt.
                 loginLimiter = RateLimiter(config.loginMaxAttempts, config.loginLockoutSeconds * 1000, now),
+                loginEmailLimiter = RateLimiter(config.loginEmailMaxAttempts, config.loginLockoutSeconds * 1000, now),
                 now = now,
             )
     }

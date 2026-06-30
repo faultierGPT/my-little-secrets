@@ -1,21 +1,29 @@
 package app.mls.core.crypto
 
-/** Material produced by local registration: what to send the server + what to show the user. */
+/**
+ * Material produced by local registration: what to send the server + what to show the user.
+ *
+ * Ownership: [authKey] and [recoveryCode] are wipeable secrets the CALLER must [SecretBytes.close]
+ * after they are consumed (authKey once the register request is sent; recoveryCode once shown to the
+ * user). [accountKey] is the long-lived unlocked key for the session and is owned by the session,
+ * not closed here. Closing the material would kill the session key, so it is deliberately not
+ * AutoCloseable.
+ */
 class RegistrationMaterial(
     val salt: ByteArray,
     val kdfParams: KdfParams,
-    val authKey: ByteArray,                 // sent to server; server stores Argon2id(authKey)
+    val authKey: SecretBytes,               // sent to server; server stores Argon2id(authKey). Caller wipes after upload.
     val wrappedAccountKey: Sealed,
     val wrappedAccountKeyRecovery: Sealed?, // present iff recovery enabled
-    val recoveryCode: RecoveryCode?,        // shown ONCE to the user, never persisted
-    val accountKey: SecretBytes,            // unlocked, held in memory only
+    val recoveryCode: RecoveryCode?,        // shown ONCE to the user, never persisted. Caller wipes after display.
+    val accountKey: SecretBytes,            // unlocked, held in memory only (session-owned)
 )
 
-/** Result of re-wrapping the same account key for a new password. */
+/** Result of re-wrapping the same account key for a new password. [authKey] is caller-wiped after upload. */
 class RewrapResult(
     val salt: ByteArray,
     val kdfParams: KdfParams,
-    val authKey: ByteArray,
+    val authKey: SecretBytes,
     val wrappedAccountKey: Sealed,
 )
 
@@ -46,19 +54,19 @@ object CryptoCore {
                 var wrappedRecovery: Sealed? = null
                 if (withRecovery) {
                     val rc = RecoveryCode.generate()
-                    val rwk = KeyHierarchy.deriveRecoveryWrapKey(rc.rawKey)
+                    val rwk = KeyHierarchy.deriveRecoveryWrapKey(rc.rawKey())
                     try {
                         wrappedRecovery = AccountKeyCrypto.wrapForRecovery(accountKey, rwk)
                     } finally {
                         rwk.destroy()
                     }
-                    recoveryCode = rc
+                    recoveryCode = rc // returned live; the caller wipes it after showing the user
                 }
 
                 return RegistrationMaterial(
                     salt = salt,
                     kdfParams = params,
-                    authKey = authKeySecret.copyBytes(),
+                    authKey = SecretBytes.wrap(authKeySecret.copyBytes()), // caller-owned, wipeable copy of the credential
                     wrappedAccountKey = wrapped,
                     wrappedAccountKeyRecovery = wrappedRecovery,
                     recoveryCode = recoveryCode,
@@ -105,7 +113,7 @@ object CryptoCore {
 
     /** Unlock via the recovery code instead of the password. */
     fun unlockWithRecovery(recovery: RecoveryCode, wrappedAccountKeyRecovery: Sealed): SecretBytes {
-        val rwk = KeyHierarchy.deriveRecoveryWrapKey(recovery.rawKey)
+        val rwk = KeyHierarchy.deriveRecoveryWrapKey(recovery.rawKey())
         try {
             return AccountKeyCrypto.unwrapFromRecovery(wrappedAccountKeyRecovery, rwk)
         } finally {
@@ -130,7 +138,7 @@ object CryptoCore {
             val kek = KeyHierarchy.deriveKek(master)
             try {
                 val wrapped = AccountKeyCrypto.wrap(accountKey, kek)
-                return RewrapResult(salt, params, authKeySecret.copyBytes(), wrapped)
+                return RewrapResult(salt, params, SecretBytes.wrap(authKeySecret.copyBytes()), wrapped)
             } finally {
                 authKeySecret.destroy()
                 kek.destroy()

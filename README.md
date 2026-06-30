@@ -16,9 +16,9 @@ by design.
 | [`core/`](core/) | Shared **Kotlin crypto core** — the security boundary, used by both clients | ✅ built + tested |
 | [`server/`](server/) | **Ktor** sync server, stores only ciphertext (PostgreSQL; H2 for tests) | ✅ built + tested |
 | `core/` networking | Typed API client + offline-first sync + encrypted cache | ✅ built + tested |
-| `android/` | **Jetpack Compose** client (signed APK) | ⏳ Phase 4 |
+| [`design/`](design/) | Toolkit-neutral design tokens → Compose theme + JavaFX CSS, one source | ✅ built + tested |
+| `android/` | **Jetpack Compose** client (signed APK) | ⏳ Phase 4 (UI) |
 | `desktop/` | **Pure Java + JavaFX** client (GPG-signed AppImage/.deb/.rpm) | ⏳ Phase 5 |
-| `design/` | Toolkit-neutral design tokens + Compose/JavaFX theme mappers | ⏳ Phase 4 |
 
 ## Crypto in one box (full detail in `SECURITY.md`)
 

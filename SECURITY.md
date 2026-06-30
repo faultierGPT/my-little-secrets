@@ -264,6 +264,24 @@ interface so **OPAQUE** can replace it without touching the note-crypto core.
 - **All dependency versions pinned and locked**; current stable verified at build time,
   not hardcoded from memory.
 
+### 6.1 Independent adversarial review (foundation)
+
+The crypto core + server were put through a multi-lens adversarial review (primitive usage, key
+hierarchy / zero-knowledge boundary, secret hygiene, server leakage, sync/cache), each finding
+verified by an independent skeptic. **No critical/high issues; the zero-knowledge contract held** —
+nonce freshness, KDF domain separation, AAD binding, Argon2id parameters, ciphertext-only storage,
+hashed session tokens, and parameterized SQL were all confirmed clean. Six lower-severity findings
+were fixed:
+
+- **Optimistic-concurrency enforced server-side** on note writes — a stale base revision is now a
+  `409`, not a silent overwrite (was: `revision` received but ignored). Client re-pulls/merges/retries.
+- **Auth throttle no longer trusts `X-Forwarded-For`** unless `MLS_TRUSTED_PROXY_HOPS > 0`, plus a
+  per-email backstop independent of source IP (was: leftmost XFF spoofable → throttle bypass).
+- **Application-level request body cap on every endpoint**, enforced independent of `Content-Length`
+  (was: `/auth/register` unbounded; chunked uploads bypassed the note `Content-Length` check).
+- **Recovery code and the returned `authKey` are now wipeable `SecretBytes`** (were bare arrays),
+  closing the last gaps in the zeroization discipline.
+
 ---
 
 ## 7. Signing & artifact verification _(shape fixed; specifics completed at release)_

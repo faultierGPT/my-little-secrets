@@ -17,8 +17,6 @@ import app.mls.core.model.RegisterRequest
 import app.mls.server.auth.Tokens
 import app.mls.server.db.UserRecord
 import io.ktor.http.HttpStatusCode
-import io.ktor.server.request.contentLength
-import io.ktor.server.request.receive
 import io.ktor.server.response.respond
 import io.ktor.server.routing.Route
 import io.ktor.server.routing.delete
@@ -33,7 +31,8 @@ private val NOTE_ID_RE = Regex("^[A-Za-z0-9_-]{1,64}$")
 fun Route.authRoutes(deps: AppDeps) = route("/auth") {
 
     post("/register") {
-        val req = call.receive<RegisterRequest>()
+        // Cap the body before buffering/parsing — /register has no rate limiter (it's first contact).
+        val req = appJson.decodeFromString(RegisterRequest.serializer(), call.receiveCappedText(deps.config.maxAuthBodyBytes))
         validateRegister(req, deps.config)
         val email = req.email.trim().lowercase()
 
@@ -60,15 +59,17 @@ fun Route.authRoutes(deps: AppDeps) = route("/auth") {
     }
 
     post("/login/params") {
-        val req = call.receive<LoginParamsRequest>()
+        val req = appJson.decodeFromString(LoginParamsRequest.serializer(), call.receiveCappedText(deps.config.maxAuthBodyBytes))
         val email = req.email.trim().lowercase()
-        val rlKey = "params|$email|${call.clientIp()}"
-        if (!deps.loginLimiter.checkAllowed(rlKey)) {
+        val ipKey = "params|$email|${call.clientIp(deps.config.trustedProxyHops)}"
+        val emailKey = "params|$email"
+        if (!deps.loginLimiter.checkAllowed(ipKey) || !deps.loginEmailLimiter.checkAllowed(emailKey)) {
             return@post call.respond(HttpStatusCode.TooManyRequests, ErrorResponse("too many requests", "rate_limited"))
         }
         val user = deps.users.findByEmail(email)
         if (user == null) {
-            deps.loginLimiter.recordFailure(rlKey)
+            deps.loginLimiter.recordFailure(ipKey)
+            deps.loginEmailLimiter.recordFailure(emailKey)
             // Email existence is not a protected secret (SECURITY.md §2.3); respond plainly.
             return@post call.respond(HttpStatusCode.NotFound, ErrorResponse("no such account", "not_found"))
         }
@@ -76,10 +77,11 @@ fun Route.authRoutes(deps: AppDeps) = route("/auth") {
     }
 
     post("/login") {
-        val req = call.receive<LoginRequest>()
+        val req = appJson.decodeFromString(LoginRequest.serializer(), call.receiveCappedText(deps.config.maxAuthBodyBytes))
         val email = req.email.trim().lowercase()
-        val rlKey = "login|$email|${call.clientIp()}"
-        if (!deps.loginLimiter.checkAllowed(rlKey)) {
+        val ipKey = "login|$email|${call.clientIp(deps.config.trustedProxyHops)}"
+        val emailKey = "login|$email"
+        if (!deps.loginLimiter.checkAllowed(ipKey) || !deps.loginEmailLimiter.checkAllowed(emailKey)) {
             return@post call.respond(HttpStatusCode.TooManyRequests, ErrorResponse("too many requests", "rate_limited"))
         }
         val user = deps.users.findByEmail(email)
@@ -87,10 +89,12 @@ fun Route.authRoutes(deps: AppDeps) = route("/auth") {
         val ok = user != null && AuthVerifier.verify(user.authVerifier, authKeyBytes)
         java.util.Arrays.fill(authKeyBytes, 0)
         if (!ok) {
-            deps.loginLimiter.recordFailure(rlKey)
+            deps.loginLimiter.recordFailure(ipKey)
+            deps.loginEmailLimiter.recordFailure(emailKey)
             return@post call.respond(HttpStatusCode.Unauthorized, ErrorResponse("invalid credentials", "unauthorized"))
         }
-        deps.loginLimiter.recordSuccess(rlKey)
+        deps.loginLimiter.recordSuccess(ipKey)
+        deps.loginEmailLimiter.recordSuccess(emailKey)
         val raw = Tokens.newRawToken()
         val expiresAt = deps.now() + deps.config.tokenTtlSeconds * 1000
         deps.sessions.create(Tokens.hash(raw), user.id, expiresAt, deps.now())
@@ -122,7 +126,7 @@ fun Route.accountRoutes(deps: AppDeps) {
 
     post("/account/password") {
         val userId = call.userId()
-        val req = call.receive<PasswordChangeRequest>()
+        val req = appJson.decodeFromString(PasswordChangeRequest.serializer(), call.receiveCappedText(deps.config.maxAuthBodyBytes))
         val user = deps.users.findById(userId)
             ?: return@post call.respond(HttpStatusCode.NotFound, ErrorResponse("not found", "not_found"))
 
@@ -163,14 +167,12 @@ fun Route.noteRoutes(deps: AppDeps) {
         if (!NOTE_ID_RE.matches(id)) {
             return@put call.respond(HttpStatusCode.BadRequest, ErrorResponse("invalid note id", "bad_id"))
         }
-        // Reject oversized payloads before reading the whole body.
+        // Cap the body (independent of Content-Length) before buffering, then bound the stored field.
         val limit = deps.config.maxNoteCiphertextBytes * 2 + 4096
-        call.request.contentLength()?.let { if (it > limit) throw PayloadTooLargeException("note too large") }
-
-        val req = call.receive<PutNoteRequest>()
+        val req = appJson.decodeFromString(PutNoteRequest.serializer(), call.receiveCappedText(limit))
         if (req.ciphertext.length > limit) throw PayloadTooLargeException("note too large")
 
-        val dto = deps.notes.upsert(call.userId(), id, req.ciphertext, req.nonce, req.schemeVersion, deps.now())
+        val dto = deps.notes.upsert(call.userId(), id, req.ciphertext, req.nonce, req.schemeVersion, req.revision, deps.now())
         call.respond(dto)
     }
 

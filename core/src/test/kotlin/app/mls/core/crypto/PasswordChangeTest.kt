@@ -38,7 +38,7 @@ class PasswordChangeTest {
 
         // The auth credential rotated too.
         val newAuthKey = CryptoCore.deriveAuthKeyForLogin(newPw.copyOf(), rewrap.salt, rewrap.kdfParams).copyBytes()
-        assertArrayEquals(rewrap.authKey, newAuthKey)
-        assertFalse(rewrap.authKey.contentEquals(material.authKey))
+        assertArrayEquals(rewrap.authKey.bytes(), newAuthKey)
+        assertFalse(rewrap.authKey.bytes().contentEquals(material.authKey.bytes()))
     }
 }

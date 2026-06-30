@@ -2,7 +2,9 @@ package app.mls.server
 
 import app.mls.core.model.ErrorResponse
 import app.mls.server.auth.Tokens
+import app.mls.server.db.NoteRepository
 import app.mls.server.db.UserRepository
+import kotlinx.serialization.SerializationException
 import io.ktor.http.HttpHeaders
 import io.ktor.http.HttpMethod
 import io.ktor.http.HttpStatusCode
@@ -62,7 +64,15 @@ fun Application.configureStatusPages() {
         exception<PayloadTooLargeException> { call, e ->
             call.respond(HttpStatusCode.PayloadTooLarge, ErrorResponse(e.message ?: "payload too large", "payload_too_large"))
         }
+        exception<NoteRepository.RevisionConflictException> { call, _ ->
+            // Optimistic-concurrency miss: the client's base revision is stale. It re-pulls and retries.
+            call.respond(HttpStatusCode.Conflict, ErrorResponse("revision conflict", "conflict"))
+        }
         exception<BadRequestException> { call, _ ->
+            call.respond(HttpStatusCode.BadRequest, ErrorResponse("bad request", "bad_request"))
+        }
+        exception<SerializationException> { call, _ ->
+            // Malformed JSON body (we decode manually after a size-capped read).
             call.respond(HttpStatusCode.BadRequest, ErrorResponse("bad request", "bad_request"))
         }
         exception<IllegalArgumentException> { call, _ ->

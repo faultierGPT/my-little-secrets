@@ -27,7 +27,7 @@ class ServerCannotReadTest {
         // ---- EXACTLY what the server database holds, and nothing more ----
         val storedSalt = material.salt
         val storedParams = material.kdfParams
-        val storedAuthVerifier = AuthVerifier.create(material.authKey)
+        val storedAuthVerifier = AuthVerifier.create(material.authKey.bytes())
         val storedWrappedAccountKey = material.wrappedAccountKey.toBlob()
         val storedNoteBlob = sealed.toBlob()
 

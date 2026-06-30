@@ -18,7 +18,7 @@ class RecoveryTest {
         // Simulate the user writing the code down and typing it back later.
         val recoveryCode = material.recoveryCode!!
         val parsed = RecoveryCode.parse(recoveryCode.display())
-        assertArrayEquals(recoveryCode.rawKey, parsed.rawKey)
+        assertArrayEquals(recoveryCode.rawKey(), parsed.rawKey())
 
         val unlocked = CryptoCore.unlockWithRecovery(parsed, material.wrappedAccountKeyRecovery!!)
         assertArrayEquals(material.accountKey.copyBytes(), unlocked.copyBytes())

@@ -1,0 +1,161 @@
+/* GENERATED FILE — do not edit by hand. */
+/* Source of truth: design/src/main/kotlin/app/mls/design/Tokens.kt */
+/* Regenerate:      ./gradlew :design:run */
+/* my-little-secrets design tokens v1 — JavaFX stylesheet */
+
+/* ---- tokens: looked-up colors + base typography ---- */
+.root {
+    -mls-bg-base: #16130f;
+    -mls-bg-elevated: #1e1a15;
+    -mls-bg-overlay: #231e18;
+    -mls-border-hairline: #2a251e;
+    -mls-text-primary: #ede6da;
+    -mls-text-secondary: #a39a8b;
+    -mls-text-disabled: rgba(163, 154, 139, 0.380);
+    -mls-accent: #c9a26b;
+    -mls-accent-on: #16130f;
+    -mls-accent-subtle: rgba(201, 162, 107, 0.122);
+    -mls-state-hover: rgba(237, 230, 218, 0.059);
+    -mls-state-pressed: rgba(237, 230, 218, 0.102);
+    -mls-focus-ring: #c9a26b;
+    -mls-semantic-danger: #c16a52;
+    -mls-semantic-danger-on: #16130f;
+    -mls-scrim: rgba(11, 9, 7, 0.702);
+
+    -fx-background-color: -mls-bg-base;
+    -fx-font-family: "Geist", "IBM Plex Sans", "Inter", system-ui, sans-serif;
+    -fx-font-size: 14px;
+    -fx-text-fill: -mls-text-primary;
+    /* tame the default JavaFX focus glow; we draw our own amber ring */
+    -fx-focus-color: -mls-focus-ring;
+    -fx-faint-focus-color: transparent;
+}
+
+/* ---- surfaces ---- */
+.mls-app { -fx-background-color: -mls-bg-base; }
+.mls-surface {
+    -fx-background-color: -mls-bg-elevated;
+    -fx-background-radius: 10;
+    -fx-border-color: -mls-border-hairline;
+    -fx-border-width: 1;
+    -fx-border-radius: 10;
+}
+.mls-overlay {
+    -fx-background-color: -mls-bg-overlay;
+    -fx-background-radius: 10;
+    -fx-border-color: -mls-border-hairline;
+    -fx-border-width: 1;
+    -fx-border-radius: 10;
+    -fx-effect: dropshadow(gaussian, rgba(11, 9, 7, 0.702), 24, 0.0, 0, 8);
+}
+.mls-divider { -fx-background-color: -mls-border-hairline; -fx-pref-height: 1; }
+
+/* ---- typography ---- */
+.mls-display {
+    -fx-font-family: "Spectral", "Newsreader", "Source Serif 4", "Georgia", serif;
+    -fx-font-size: 28px;
+    -fx-font-weight: 600;
+    -fx-text-fill: -mls-text-primary;
+    -fx-line-spacing: 6px;
+}
+.mls-title {
+    -fx-font-family: "Spectral", "Newsreader", "Source Serif 4", "Georgia", serif;
+    -fx-font-size: 19px;
+    -fx-font-weight: 500;
+    -fx-text-fill: -mls-text-primary;
+    -fx-line-spacing: 7px;
+}
+.mls-reading {
+    -fx-font-family: "Spectral", "Newsreader", "Source Serif 4", "Georgia", serif;
+    -fx-font-size: 16px;
+    -fx-font-weight: 400;
+    -fx-text-fill: -mls-text-primary;
+    -fx-line-spacing: 11px;
+}
+.mls-ui-label {
+    -fx-font-family: "Geist", "IBM Plex Sans", "Inter", system-ui, sans-serif;
+    -fx-font-size: 14px;
+    -fx-font-weight: 500;
+    -fx-text-fill: -mls-text-primary;
+    -fx-line-spacing: 6px;
+}
+.mls-ui-body {
+    -fx-font-family: "Geist", "IBM Plex Sans", "Inter", system-ui, sans-serif;
+    -fx-font-size: 14px;
+    -fx-font-weight: 400;
+    -fx-text-fill: -mls-text-primary;
+    -fx-line-spacing: 7px;
+}
+.mls-button {
+    -fx-font-family: "Geist", "IBM Plex Sans", "Inter", system-ui, sans-serif;
+    -fx-font-size: 14px;
+    -fx-font-weight: 600;
+    -fx-text-fill: -mls-text-primary;
+    -fx-line-spacing: 4px;
+}
+.mls-meta {
+    -fx-font-family: "Geist", "IBM Plex Sans", "Inter", system-ui, sans-serif;
+    -fx-font-size: 12px;
+    -fx-font-weight: 400;
+    -fx-text-fill: -mls-text-secondary;
+    -fx-line-spacing: 4px;
+}
+
+/* ---- buttons ---- */
+/* quiet default: text on a hairline-bordered transparent surface */
+.button {
+    -fx-font-family: "Geist", "IBM Plex Sans", "Inter", system-ui, sans-serif;
+    -fx-font-size: 14px;
+    -fx-font-weight: 600;
+    -fx-text-fill: -mls-text-primary;
+    -fx-background-color: transparent;
+    -fx-border-color: -mls-border-hairline;
+    -fx-border-width: 1;
+    -fx-background-radius: 6;
+    -fx-border-radius: 6;
+    -fx-padding: 8 14 8 14;
+    -fx-cursor: hand;
+}
+.button:hover { -fx-background-color: -mls-state-hover; }
+.button:pressed { -fx-background-color: -mls-state-pressed; }
+.button:focused { -fx-border-color: -mls-focus-ring; -fx-border-width: 2; }
+.button:disabled { -fx-opacity: 0.38; }
+
+/* primary: the one amber call-to-action */
+.button.mls-primary {
+    -fx-background-color: -mls-accent;
+    -fx-text-fill: -mls-accent-on;
+    -fx-border-color: transparent;
+}
+.button.mls-primary:hover { -fx-background-color: derive(-mls-accent, 8%); }
+.button.mls-primary:pressed { -fx-background-color: derive(-mls-accent, -8%); }
+
+/* destructive: the muted terracotta status color, used only for delete */
+.button.mls-danger {
+    -fx-background-color: transparent;
+    -fx-text-fill: -mls-semantic-danger;
+    -fx-border-color: -mls-semantic-danger;
+}
+.button.mls-danger:hover { -fx-background-color: -mls-semantic-danger; -fx-text-fill: -mls-semantic-danger-on; }
+
+/* ---- text inputs ---- */
+.text-field, .text-area {
+    -fx-font-family: "Geist", "IBM Plex Sans", "Inter", system-ui, sans-serif;
+    -fx-font-size: 14px;
+    -fx-text-fill: -mls-text-primary;
+    -fx-prompt-text-fill: -mls-text-secondary;
+    -fx-background-color: -mls-bg-elevated;
+    -fx-background-radius: 6;
+    -fx-border-color: -mls-border-hairline;
+    -fx-border-width: 1;
+    -fx-border-radius: 6;
+    -fx-padding: 8 10 8 10;
+}
+.text-area .content { -fx-background-color: -mls-bg-elevated; }
+.text-field:focused, .text-area:focused { -fx-border-color: -mls-focus-ring; -fx-border-width: 2; }
+
+/* ---- note list ---- */
+.list-view { -fx-background-color: transparent; -fx-border-color: transparent; }
+.list-view .list-cell { -fx-background-color: transparent; -fx-padding: 12 14 12 14; -fx-text-fill: -mls-text-primary; }
+.list-view .list-cell:filled:hover { -fx-background-color: -mls-state-hover; }
+.list-view .list-cell:filled:selected { -fx-background-color: -mls-accent-subtle; }

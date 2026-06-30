@@ -94,12 +94,25 @@ class UserRepository(private val db: Db) {
 
 class NoteRepository(private val db: Db) {
 
+    /** The client's [PutNoteRequest.revision] (its last-known server revision) didn't match the row. */
+    class RevisionConflictException : RuntimeException("note revision conflict")
+
     private data class Existing(val revision: Long, val schemeVersion: Int)
 
-    fun upsert(userId: String, id: String, ciphertext: String, nonce: String, schemeVersion: Int, now: Long): NoteDto =
+    /**
+     * Optimistic-concurrency upsert. [expectedRevision] is the client's last-known server revision
+     * (0 for a never-synced note). The UPDATE is a compare-and-swap on `revision`, so two devices
+     * racing the same edit can't both win — the loser's `WHERE revision=?` matches 0 rows and we
+     * raise [RevisionConflictException] (→ HTTP 409). This is what stops a concurrent edit from being
+     * silently overwritten; the client re-pulls, merges, and retries.
+     */
+    fun upsert(userId: String, id: String, ciphertext: String, nonce: String, schemeVersion: Int, expectedRevision: Long, now: Long): NoteDto =
         db.tx { c ->
             val existing = selectExisting(c, userId, id)
             if (existing == null) {
+                // Brand-new id. The client must claim revision 0; anything else means it expected a row
+                // that no longer exists — treat as a conflict rather than resurrect at revision 1.
+                if (expectedRevision != 0L) throw RevisionConflictException()
                 c.prepareStatement(
                     """INSERT INTO notes (id,user_id,ciphertext,nonce,scheme_version,updated_at,deleted,revision)
                        VALUES (?,?,?,?,?,?,FALSE,1)""",
@@ -110,15 +123,17 @@ class NoteRepository(private val db: Db) {
                 }
                 NoteDto(id, ciphertext, nonce, schemeVersion, now, deleted = false, revision = 1)
             } else {
-                val newRev = existing.revision + 1
-                c.prepareStatement(
+                val newRev = expectedRevision + 1
+                val affected = c.prepareStatement(
                     """UPDATE notes SET ciphertext=?, nonce=?, scheme_version=?, updated_at=?, deleted=FALSE, revision=?
-                       WHERE user_id=? AND id=?""",
+                       WHERE user_id=? AND id=? AND revision=?""",
                 ).use { ps ->
                     ps.setString(1, ciphertext); ps.setString(2, nonce); ps.setInt(3, schemeVersion)
                     ps.setLong(4, now); ps.setLong(5, newRev); ps.setString(6, userId); ps.setString(7, id)
+                    ps.setLong(8, expectedRevision)
                     ps.executeUpdate()
                 }
+                if (affected == 0) throw RevisionConflictException() // stale base revision lost the race
                 NoteDto(id, ciphertext, nonce, schemeVersion, now, deleted = false, revision = newRev)
             }
         }

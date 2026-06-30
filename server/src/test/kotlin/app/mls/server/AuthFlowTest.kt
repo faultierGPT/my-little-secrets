@@ -79,10 +79,10 @@ class AuthFlowTest {
                 appJson.encodeToString(
                     PasswordChangeRequest.serializer(),
                     PasswordChangeRequest(
-                        currentAuthKey = B64.encode(material.authKey),
+                        currentAuthKey = B64.encode(material.authKey.bytes()),
                         newSalt = B64.encode(rewrap.salt),
                         newKdfParams = rewrap.kdfParams,
-                        newAuthKey = B64.encode(rewrap.authKey),
+                        newAuthKey = B64.encode(rewrap.authKey.bytes()),
                         newWrappedAccountKey = rewrap.wrappedAccountKey.toBlob(),
                     ),
                 ),

@@ -39,7 +39,12 @@ class FakeMlsApi(private val clock: () -> Long) : MlsApi {
     }
 
     override suspend fun putNote(id: String, req: PutNoteRequest): NoteDto {
-        val rev = (notes[id]?.revision ?: 0) + 1
+        // Optimistic concurrency, exactly like the real server: the client's base revision must match
+        // the stored one (0 for a new note), else 409. This is what makes a concurrent edit a detected
+        // conflict instead of a silent overwrite.
+        val current = notes[id]?.revision ?: 0
+        if (req.revision != current) throw ApiException(409, "conflict", "revision conflict")
+        val rev = current + 1
         val row = Row(req.ciphertext, req.nonce, req.schemeVersion, clock(), false, rev)
         notes[id] = row
         return NoteDto(id, row.ciphertext, row.nonce, row.schemeVersion, row.updatedAt, false, rev)

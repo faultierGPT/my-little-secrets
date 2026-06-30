@@ -48,7 +48,7 @@ object ServerTestSupport {
             email = email,
             salt = B64.encode(material.salt),
             kdfParams = material.kdfParams,
-            authKey = B64.encode(material.authKey),
+            authKey = B64.encode(material.authKey.bytes()),
             wrappedAccountKey = material.wrappedAccountKey.toBlob(),
             wrappedAccountKeyRecovery = material.wrappedAccountKeyRecovery?.toBlob(),
             schemeVersion = 1,

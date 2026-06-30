@@ -24,8 +24,8 @@ class EncodingAndSecretBytesTest {
     @Test
     fun `recovery code display parses back, tolerant of case and grouping`() {
         val rc = RecoveryCode.generate()
-        assertArrayEquals(rc.rawKey, RecoveryCode.parse(rc.display()).rawKey)
-        assertArrayEquals(rc.rawKey, RecoveryCode.parse(rc.display().lowercase().replace("-", "")).rawKey)
+        assertArrayEquals(rc.rawKey(), RecoveryCode.parse(rc.display()).rawKey())
+        assertArrayEquals(rc.rawKey(), RecoveryCode.parse(rc.display().lowercase().replace("-", "")).rawKey())
     }
 
     @Test

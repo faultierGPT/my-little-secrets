@@ -14,6 +14,9 @@ import app.mls.core.store.CachedNote
 import app.mls.core.store.NoteStore
 import java.util.UUID
 
+/** Bounded retries for the rare server-side optimistic-concurrency rejection during push. */
+private const val MAX_PUSH_RETRIES = 3
+
 /** How to resolve a note edited on two devices since the last sync. */
 enum class ConflictPolicy { LAST_WRITE_WINS, KEEP_BOTH }
 
@@ -86,14 +89,32 @@ class SyncEngine(
     // ---------- sync ----------
 
     suspend fun sync(): SyncResult {
-        val pull = pull()      // detect conflicts before overwriting the server
-        val push = push()
-        return pull.copy(pushed = push.pushed, deletedPushed = push.deletedPushed)
+        var pulled = 0
+        var pushed = 0
+        var deletedPushed = 0
+        var conflicts = 0
+        var keptBoth = 0
+        var attempt = 0
+        var fullRefresh = false
+        // Normally one pull-then-push round suffices: pull-before-push catches a concurrent edit and
+        // merges it. The server ALSO enforces optimistic concurrency, so a genuinely simultaneous push
+        // from another device can still be rejected (409) after our pull. On that rare miss we re-pull
+        // EVERYTHING (since=0) so the newer revision is guaranteed visible, merge, and retry the push.
+        while (true) {
+            val pull = pull(if (fullRefresh) 0L else null)
+            pulled += pull.pulled; conflicts += pull.conflicts; keptBoth += pull.keptBoth
+            val push = push()
+            pushed += push.pushed; deletedPushed += push.deletedPushed
+            if (!push.needsRepull || attempt >= MAX_PUSH_RETRIES) break
+            attempt++
+            fullRefresh = true
+        }
+        return SyncResult(pulled = pulled, pushed = pushed, deletedPushed = deletedPushed, conflicts = conflicts, keptBoth = keptBoth)
     }
 
-    private suspend fun pull(): SyncResult {
+    private suspend fun pull(sinceOverride: Long? = null): SyncResult {
         val snap = store.read()
-        val resp = api.getNotes(snap.cursor)
+        val resp = api.getNotes(sinceOverride ?: snap.cursor)
         var notes = snap.notes
         var conflicts = 0
         var keptBoth = 0
@@ -109,10 +130,13 @@ class SyncEngine(
         return SyncResult(pulled = resp.notes.size, conflicts = conflicts, keptBoth = keptBoth)
     }
 
-    private suspend fun push(): SyncResult {
+    private class PushOutcome(val pushed: Int, val deletedPushed: Int, val needsRepull: Boolean)
+
+    private suspend fun push(): PushOutcome {
         var snap = store.read()
         var pushed = 0
         var deletedPushed = 0
+        var needsRepull = false
         for (note in snap.notes.filter { it.dirty }) {
             if (note.deleted) {
                 val dto = try {
@@ -127,13 +151,19 @@ class SyncEngine(
                 )
                 deletedPushed++
             } else {
-                val dto = api.putNote(note.id, PutNoteRequest(note.ciphertext, note.nonce, note.schemeVersion, note.baseRevision))
+                val dto = try {
+                    api.putNote(note.id, PutNoteRequest(note.ciphertext, note.nonce, note.schemeVersion, note.baseRevision))
+                } catch (e: ApiException) {
+                    // Server rejected our base revision as stale: leave the note dirty and signal a
+                    // re-pull so the next round merges the winning edit and retries — never a silent loss.
+                    if (e.isConflict) { needsRepull = true; continue } else throw e
+                }
                 snap = snap.copy(notes = snap.notes.upsert(note.copy(dirty = false, baseRevision = dto.revision, updatedAt = dto.updatedAt)))
                 pushed++
             }
         }
         store.write(snap)
-        return SyncResult(pushed = pushed, deletedPushed = deletedPushed)
+        return PushOutcome(pushed = pushed, deletedPushed = deletedPushed, needsRepull = needsRepull)
     }
 
     // ---------- merge (pure; the heart of conflict resolution) ----------
