@@ -22,6 +22,12 @@ dependencies {
     // core's app.mls.core.jvm blocking adapters, so this module stays pure Java.
     implementation(project(":core"))
 
+    // Platform libsodium binding. :core declares lazysodium-java + jna as compileOnly so the JVM
+    // binding is not transitively leaked to Android; desktop must bring them in itself so the
+    // default `Sodium` binding (LazySodiumJava / SodiumJava) is actually present at runtime.
+    implementation(libs.lazysodium.java)
+    implementation(libs.jna)
+
     testImplementation(platform(libs.junit.bom))
     testImplementation(libs.junit.jupiter)
     testRuntimeOnly(libs.junit.platform.launcher)

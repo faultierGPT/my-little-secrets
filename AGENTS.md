@@ -8,35 +8,60 @@ damit ein anderer Agent nahtlos weiterarbeiten kann.
 
 ## Letzter Durchlauf
 
-**Aufgabe:** Verifikation des `./gradlew :android:assembleRelease` Builds, der im Dashboard-Output
-erneut einen `java.lang.NoClassDefFoundError: com/android/build/gradle/BaseExtension` zeigte.
+**Aufgabe:** `./gradlew :android:assembleRelease` brach mit `CheckDuplicatesRunnable` ab —
+Hunderte `Duplicate class com.goterl.lazysodium.*` und `Duplicate class com.sun.jna.*` zwischen
+`lazysodium-android-5.1.0.aar` und `lazysodium-java-5.2.0.jar` (plus `jna-5.19.1` vs `jna-5.17.0`).
 
-**Ergebnis:** Der Stacktrace stammt aus dem **alten** Zustand vor dem letzten Fix; das Repo enthält
-bereits die reparierte Konfiguration (`android/build.gradle.kts` wendet nur
-`com.android.application` + `kotlin.compose` an, kein `org.jetbrains.kotlin.android`, da AGP 9
-Built-in Kotlin liefert; Root-`build.gradle.kts` enthält keinen `apply false`-Block für Kotlin-Plugins;
-`settings.gradle.kts` zieht `:android` bei SDK oder explizitem Android-Task nach). Der Fix wurde im
-Docker-Container (`gradle:8-jdk21`, da auf der Maschine kein JDK liegt) verifiziert:
+**Ursache:** `:core` deklarierte `lazysodium-java` + `jna` als `implementation`. Damit zogen
+`:desktop` und `:server` das JVM-Binding transitiv über `:core` mit — soweit OK. Aber auch
+`:android` zog es so transitiv mit, und fügte zusätzlich `lazysodium-android` + `jna`-AAR als
+`implementation` hinzu. AGP kombinierte beides im Release-Classpath → `checkReleaseDuplicateClasses`
+feuerte. Die Architektur ("libsodium-Binding ist austauschbar", siehe AGENTS.md-Bestimmungen) war
+schon richtig dokumentiert, nur die Build-Konfiguration hatte das nicht umgesetzt.
 
-- `./gradlew :android:help` läuft sauber durch (nur die bekannte, dokumentierte Kotlin-Plugin-
-  Classloader-Warnung zwischen `:android` und `:core`).
-- `./gradlew :android:buildEnvironment` zeigt korrekt `com.android.tools.build:gradle:9.2.1` +
-  Kotlin-Stack `2.4.0` (incl. `kotlin-gradle-plugin`, `kotlin-gradle-plugin-api`, `compose-compiler-
-  gradle-plugin`).
-- `./gradlew :android:assembleRelease` schlägt **nicht** mehr mit `BaseExtension` fehl, sondern stoppt
-  erwartungsgemäß bei `SDK location not found`, weil der Container kein Android-SDK mitbringt — exakt
-  der Zustand, der bereits in der vorherigen Runde dokumentiert wurde.
+**Fix:**
 
-**Wichtigste Erkenntnis:** Der `BaseExtension`-Crash war ein Symptom von AGP 9 + KGP 2.4.0, nicht
-ein Repo-Bug *nach* dem letzten Fix. Der Stacktrace aus dem Dashboard-Prompt ist eine Momentaufnahme
-aus dem alten Stand; aktueller `HEAD` enthält die reparierte Plugin-Konfiguration. Ein echter
-Release-APK-Build braucht weiterhin eine Maschine mit installiertem Android-SDK und
-`local.properties`-`sdk.dir` (oder `ANDROID_HOME`). Als Nebeneffekt wurde in dieser Umgebung
-`:desktop:test` ausgeführt: `:core:test`, `:design:test`, `:server:test`, `:desktop:VaultIntegrationTest`
-und `:desktop:SnapshotHarness.renderSignInAndWorkspace` (SKIPPED) sind grün; nur
-`FxBringUpTest.scenesBuildAndStyleHeadlessly` schlägt fehl — wegen fehlendem
-fontconfig/Pango/X11 in der Docker-Umgebung, das ist das bereits dokumentierte
-Umgebungslimit.
+1. `core/build.gradle.kts`: `lazysodium-java` + `jna` von `implementation` auf `compileOnly`
+   umgestellt. `:core` sieht die Symbole weiterhin beim Kompilieren, gibt sie aber NICHT mehr
+   transitiv an Konsumenten weiter. Zusätzlich `testImplementation(libs.lazysodium.java)` +
+   `testImplementation(libs.jna)`, damit `:core:test` seinen Default-`Sodium`-Binding
+   (`LazySodiumJava(SodiumJava())`) zur Laufzeit findet.
+2. `desktop/build.gradle.kts` + `server/build.gradle.kts`: Ziehen `lazysodium-java` + `jna` jetzt
+   selbst als `implementation` (brauchen den Default-JVM-Binding für `Sodium.pwhash*` und
+   `AuthVerifier`).
+3. `android/build.gradle.kts`: unverändert — zieht weiterhin `lazysodium-android-5.1.0@aar` +
+   `jna-5.17.0@aar` selbst.
+4. `android/proguard-rules.pro`: `-dontwarn com.goterl.lazysodium.LazySodiumJava`,
+   `-dontwarn com.goterl.lazysodium.SodiumJava` und vier `-dontwarn java.awt.*`-Regeln
+   hinzugefügt. R8 sieht im statischen `<clinit>` von `Sodium` den JVM-Default und würde sonst
+   bei `minifyReleaseWithR8` fehlschlagen — auf Android wird der Default aber durch
+   `MlsApplication.onCreate()` über `Sodium.useBinding(...)` ersetzt, BEVOR irgendeine Crypto-
+   Funktion läuft. Das `missing_rules.txt`, das R8 automatisch generiert, ist jetzt Teil der
+   `proguard-rules.pro`.
+
+**Verifikation:**
+
+- `./gradlew :core:test :server:test :design:test` → `BUILD SUCCESSFUL` (1m 22s).
+- `./gradlew :desktop:compileJava :desktop:compileTestJava` → grün (kein vollständiger
+  `:desktop:test` im Sandbox-Container, da fontconfig/X11 fehlen — bekanntes Umgebungslimit).
+- `./gradlew :android:assembleRelease` in einem Container mit JDK 21 + Android SDK 35 → `BUILD
+  SUCCESSFUL` in 2m 47s, 50 tasks, 10 executed. Erzeugt
+  `android/build/outputs/apk/release/android-release-unsigned.apk` (5.4 MB, valides APK per
+  `file(1)`).
+- APK-Inhalt verifiziert: `lib/{arm64-v8a,armeabi-v7a,armeabi,x86,x86_64}/libsodium.so` +
+  `libjnidispatch.so` (aus dem JNA-AAR). **Keine** `LazySodiumJava` / `SodiumJava` / JVM-JNA-Klassen
+  im APK — das Duplikat-Problem ist weg.
+- Lint-Vital (`lintVitalRelease`) ohne Errors.
+- Release-APK ist korrekt unsigned, weil `MLS_ANDROID_KEYSTORE` im Container nicht gesetzt war —
+  `android/build.gradle.kts` lässt in dem Fall die APK bewusst unsigned, statt den Build zu failen
+  (siehe Kommentar im Build-Skript).
+
+**Wichtigste Erkenntnis:** Das `checkReleaseDuplicateClasses`-Problem war kein AGP-9-Inkompatibilitäts-
+Bug, sondern eine fehlerhafte Dependency-Sichtbarkeit. Die korrekte Konvention ist jetzt: `:core`
+deklariert seine libsodium-API-Symbole als `compileOnly`, jede Plattform (Desktop/Server mit
+JVM-Binding, Android mit AAR-Binding) bringt ihre Variante selbst als `implementation` mit.
+Diese Aufteilung gehört ab jetzt zu den Konventionen — sie ist unten bei den "Wichtigen
+Entscheidungen" festgehalten.
 
 ---
 
@@ -108,6 +133,22 @@ bei expliziten Android-Tasks wie `:android:assembleRelease` wird das Modul ebenf
   die Suspend-API direkt. Interop-Anpassungen gehören in `core`, nicht in `desktop`.
 - **libsodium-Binding ist austauschbar:** Alle Krypto-Flows laufen durch `core/.../crypto/Sodium.kt`.
   Desktop/Server nutzen LazySodiumJava; Android setzt beim Start in `MlsApplication` LazySodiumAndroid.
+- **libsodium-Binding-Sichtbarkeit ist `compileOnly` in `:core`:** `:core` deklariert
+  `libs.lazysodium.java` + `libs.jna` als `compileOnly`, NICHT als `implementation`. Sonst landet
+  `lazysodium-java` (jar) transitiv im Android-Classpath und kollidiert dort mit
+  `lazysodium-android` (aar) — AGP's `checkReleaseDuplicateClasses` wirft dann Hunderte
+  `Duplicate class com.goterl.lazysodium.*` / `Duplicate class com.sun.jna.*`-Einträge. Jeder
+  Konsument von `:core` muss seine Plattform-Variante selbst als `implementation` mitbringen:
+  `desktop` + `server` → `lazysodium-java` + `jna` (jar); `android` → `lazysodium-android@aar` +
+  `jna@aar`. Für `:core:test` wird `lazysodium-java` + `jna` zusätzlich als `testImplementation`
+  deklariert, weil der Default-`Sodium`-Binding (`LazySodiumJava(SodiumJava())`) im `<clinit>` zur
+  Testlaufzeit tatsächlich aufgelöst wird.
+- **R8 sieht `Sodium.<clinit>`:** Da `Sodium` einen JVM-Default-Binding hat, muss `android/proguard-rules.pro`
+  `-dontwarn com.goterl.lazysodium.LazySodiumJava` und `-dontwarn com.goterl.lazysodium.SodiumJava`
+  enthalten (plus die JNA-AWT-Helper). Auf Android ersetzt `MlsApplication.onCreate()` den Binding
+  per `Sodium.useBinding(...)`, BEVOR irgendeine Crypto-Funktion läuft. Der Inhalt von
+  `android/build/outputs/mapping/release/missing_rules.txt` (von R8 generiert) gehört ins Repo,
+  nicht nur lokal.
 - **Session-Controller-Pattern:** Desktop `session/Vault.java` und Android
   `session/AndroidVault.kt` besitzen den entsperrten `accountKey` als wipeable `SecretBytes`, den
   verschlüsselten lokalen Store und die SyncEngine. Login:
@@ -141,16 +182,25 @@ bei expliziten Android-Tasks wie `:android:assembleRelease` wird das Modul ebenf
 ## Aktueller Stand
 
 - `core`, `server`, `desktop`, `design`: Standard-JVM-Build ohne Android-SDK konfiguriert weiterhin.
-- `:android`: Plugin-/Gradle-Konfiguration ist auf Gradle `9.6.1` repariert. Ein echter
-  `assembleRelease` braucht weiterhin ein Android-SDK.
+- `:android`: Plugin-/Gradle-Konfiguration ist auf Gradle `9.6.1` repariert. Echte
+  `assembleRelease`-Builds laufen jetzt durch (siehe "Letzter Durchlauf" oben) — Voraussetzung ist
+  weiterhin ein Android-SDK + `local.properties`-`sdk.dir` oder `ANDROID_HOME`. Die frische
+  Release-APK liegt unter
+  `android/build/outputs/apk/release/android-release-unsigned.apk` (unsigned, solange
+  `MLS_ANDROID_KEYSTORE` nicht gesetzt ist).
+- **libsodium-Sichtbarkeit:** `:core` deklariert `lazysodium-java` + `jna` jetzt `compileOnly`;
+  Konsumenten ziehen die plattformpassende Variante selbst. Diese Konvention ist bei den
+  "Wichtigen Entscheidungen" festgehalten.
 - `CLAUDE.md` existiert nicht mehr; diese Datei ist die maßgebliche Agenten-Anleitung.
 
 ## Offene Punkte / Next Steps
 
-1. Auf einer Maschine mit Android-SDK `./gradlew :android:assembleRelease` vollständig ausführen.
-2. Android-Quellcode erstmals real kompilieren und API-/Dependency-Probleme beheben, falls der
-   SDK-Build weitere Fehler zeigt.
-3. Falls AGP/KGP künftig stabil ohne Klassenlader-Warnungen zusammenarbeitet, prüfen, ob eine
+1. Release-APK auf einer Maschine mit Android-SDK + `MLS_ANDROID_KEYSTORE`-Env-Variablen signieren
+   und auf einem echten Gerät / Emulator verifizieren (Login-Flow, Sync, Biometric-Unlock).
+2. Brand-Fonts (Spectral/Geist) in `android/.../res/font/` bündeln und in `Theme.kt` verdrahten.
+3. JNA-AAR schleppt JNI-`libjnidispatch.so` für `mips` und `mips64` mit; falls Releases keine
+   MIPS-Architektur mehr unterstützen müssen, `packaging.jniLibs.useLegacyPackaging` / `abiFilters`
+   in `android/build.gradle.kts` einschränken, um die APK-Größe zu drücken.
+4. Falls AGP/KGP künftig stabil ohne Klassenlader-Warnungen zusammenarbeitet, prüfen, ob eine
    einheitlichere Kotlin-Plugin-Classpath-Strategie wieder möglich ist, ohne `BaseVariant`/
    `BaseExtension`-Fehler zu reaktivieren.
-4. Brand-Fonts (Spectral/Geist) in `android/.../res/font/` bündeln und in `Theme.kt` verdrahten.

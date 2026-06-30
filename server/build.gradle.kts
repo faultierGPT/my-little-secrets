@@ -11,6 +11,13 @@ repositories {
 dependencies {
     implementation(project(":core")) // crypto AuthVerifier + shared DTOs
 
+    // Platform libsodium binding. :core declares lazysodium-java + jna as compileOnly so the JVM
+    // binding is not transitively leaked to Android; the server must bring them in itself so
+    // `AuthVerifier` (which calls into `Sodium.pwhashStr*`) can reach the libsodium native at
+    // runtime.
+    implementation(libs.lazysodium.java)
+    implementation(libs.jna)
+
     implementation(libs.ktor.server.core)
     implementation(libs.ktor.server.netty)
     implementation(libs.ktor.server.content.negotiation)
