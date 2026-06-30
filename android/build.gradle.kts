@@ -1,23 +1,11 @@
-// NOTE: This module is intentionally NOT in the root settings.gradle.kts. The Android Gradle Plugin
-// fails to configure without an installed Android SDK, which would break every Gradle invocation for
-// the (fully buildable) :core / :server / :desktop modules. To build the app: install the Android SDK,
-// point ANDROID_HOME / local.properties at it, then add `include(":android")` to settings.gradle.kts.
+// NOTE: settings.gradle.kts includes this module only when an Android SDK is configured or an
+// Android task is requested explicitly. That keeps SDK-less JVM builds working while still allowing
+// direct commands such as `./gradlew :android:assembleRelease`.
 // See android/README.md.
 
 plugins {
     alias(libs.plugins.android.application)
-    // `kotlin.android` and `kotlin.plugin.serialization` ship INSIDE the Kotlin Gradle Plugin
-    // (org.jetbrains.kotlin:kotlin-gradle-plugin). That artifact is already on the build's shared
-    // plugin classpath because the ROOT build.gradle.kts declares `kotlin.jvm` / `kotlin.serialization`
-    // (apply false) in its plugins{} block. Re-requesting them HERE with a version makes Gradle try to
-    // verify the requested version against a classpath entry whose version it can't read, which fails
-    // with: "already on the classpath with an unknown version, so compatibility cannot be checked".
-    // So request them WITHOUT a version — the Kotlin version stays pinned once, centrally, via the
-    // catalog's `kotlin` ref through those root aliases.
-    id("org.jetbrains.kotlin.android")
-    id("org.jetbrains.kotlin.plugin.serialization")
-    // The Compose compiler plugin is a SEPARATE artifact (compose-compiler-gradle-plugin), not in
-    // kotlin-gradle-plugin, so it is NOT yet on the classpath — request it (versioned) as usual.
+    // AGP 9 provides built-in Kotlin support. Do not apply org.jetbrains.kotlin.android here.
     alias(libs.plugins.kotlin.compose)
 }
 
@@ -42,12 +30,8 @@ android {
         targetCompatibility = JavaVersion.VERSION_17
     }
 
-    kotlinOptions {
-        jvmTarget = "17"
-    }
-
     // Consume the GENERATED Compose theme tokens (single source of truth in :design).
-    sourceSets["main"].kotlin.srcDir("../design/generated/compose")
+    sourceSets["main"].kotlin.directories.add("../design/generated/compose")
 
     // Release signing comes ENTIRELY from the environment; no keystore or password is ever in the
     // repo (see RELEASE.md / scripts/gen-signing-keys.sh). When the env is unset (e.g. a plain CI
@@ -77,6 +61,12 @@ android {
         resources {
             excludes += "/META-INF/{AL2.0,LGPL2.1}"
         }
+    }
+}
+
+kotlin {
+    compilerOptions {
+        jvmTarget = org.jetbrains.kotlin.gradle.dsl.JvmTarget.JVM_17
     }
 }
 

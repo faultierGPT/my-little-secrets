@@ -16,16 +16,10 @@ postgres = "42.7.11"
 flyway = "12.9.0"
 h2 = "2.4.240"
 
-# Android client (Phase 4). Only consumed by the :android module, which is kept OUT of the root
-# settings.gradle.kts because the Android Gradle Plugin fails to configure without an installed SDK.
-# These versions are a known-good baseline; align AGP with your local SDK + Gradle if needed (RELEASE.md).
-# COMPAT: AGP 8.7.x is NOT compatible with this repo's pinned Gradle (9.6.1 in the wrapper). Applying it
-# on Gradle 9 fails with `NoClassDefFoundError: com/android/build/gradle/BaseExtension` (the old DSL type
-# AGP 9 removed). To build :android against Gradle 9.6.1 you must move to AGP 9.x (AGP 9.0 needs Gradle
-# >= 9.1; AGP 9.2.0 needs >= 9.4.1) AND complete the AGP-9 DSL migration (e.g. `kotlinOptions {}` ->
-# `kotlin { compilerOptions {} }`, drop `BaseExtension` usage / set `android.newDsl=false` as a temporary
-# bridge, bump compileSdk). That migration needs a real Android SDK and has not been done/verified here.
-agp = "8.7.3"
+# Android client. Only consumed by the :android module, which settings.gradle.kts includes when an
+# Android SDK is configured or an Android task is explicitly requested. AGP 9.2.x is compatible with
+# the repo's pinned Gradle 9.6.1.
+agp = "9.2.1"
 androidx-core = "1.15.0"
 androidx-activity = "1.9.3"
 androidx-lifecycle = "2.8.7"
@@ -86,5 +80,4 @@ ktor-client-okhttp = { module = "io.ktor:ktor-client-okhttp", version.ref = "kto
 kotlin-jvm = { id = "org.jetbrains.kotlin.jvm", version.ref = "kotlin" }
 kotlin-serialization = { id = "org.jetbrains.kotlin.plugin.serialization", version.ref = "kotlin" }
 android-application = { id = "com.android.application", version.ref = "agp" }
-kotlin-android = { id = "org.jetbrains.kotlin.android", version.ref = "kotlin" }
 kotlin-compose = { id = "org.jetbrains.kotlin.plugin.compose", version.ref = "kotlin" }

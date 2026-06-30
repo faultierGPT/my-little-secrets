@@ -114,9 +114,9 @@ gpg --fingerprint releases@yourdomain.tld                  # → secret MLS_GPG_
 
 ## Part B — Publisher: build the signed Android `.apk`
 
-**Prerequisites:** Android SDK + `ANDROID_HOME` (or `local.properties` `sdk.dir=…`), and
-`echo 'include(":android")' >> settings.gradle.kts` (the module is excluded from the default build
-because AGP can't configure without an SDK).
+**Prerequisites:** Android SDK + `ANDROID_HOME` (or `local.properties` `sdk.dir=…`). The root
+`settings.gradle.kts` includes `:android` automatically when an SDK is configured, or when an Android
+task is requested explicitly.
 
 ### B1. Create the keystore (once, ever)
 
