@@ -8,27 +8,35 @@ damit ein anderer Agent nahtlos weiterarbeiten kann.
 
 ## Letzter Durchlauf
 
-**Aufgabe:** `AGENTS.md` und `CLAUDE.md` zusammenführen, so dass nur `AGENTS.md` bleibt, und den
-Buildfehler bei `./gradlew :android:assembleRelease`
-(`com/android/build/gradle/BaseExtension`) beheben.
+**Aufgabe:** Verifikation des `./gradlew :android:assembleRelease` Builds, der im Dashboard-Output
+erneut einen `java.lang.NoClassDefFoundError: com/android/build/gradle/BaseExtension` zeigte.
 
-**Ergebnis:** `CLAUDE.md` wurde gelöscht und dessen relevante Inhalte (Umgebung, Befehle,
-Architektur, Security-Invarianten, Konventionen) wurden in diese Datei übernommen. Der Android-Build
-wurde auf AGP `9.2.1` migriert und nutzt jetzt AGP 9 Built-in Kotlin; `org.jetbrains.kotlin.android`
-wird im Android-Modul nicht mehr angewandt. Der Root-`build.gradle.kts` lädt Kotlin-Plugins nicht mehr
-per `apply false` auf den gemeinsamen Plugin-Classpath, weil genau das AGP 9/Kotlin in `:android`
-gegen entfernte Legacy-Typen (`BaseVariant`/`BaseExtension`) laufen ließ. `settings.gradle.kts` nimmt
-`:android` nun automatisch auf, wenn ein Android-SDK konfiguriert ist oder ein Android-Task explizit
-angefordert wird.
+**Ergebnis:** Der Stacktrace stammt aus dem **alten** Zustand vor dem letzten Fix; das Repo enthält
+bereits die reparierte Konfiguration (`android/build.gradle.kts` wendet nur
+`com.android.application` + `kotlin.compose` an, kein `org.jetbrains.kotlin.android`, da AGP 9
+Built-in Kotlin liefert; Root-`build.gradle.kts` enthält keinen `apply false`-Block für Kotlin-Plugins;
+`settings.gradle.kts` zieht `:android` bei SDK oder explizitem Android-Task nach). Der Fix wurde im
+Docker-Container (`gradle:8-jdk21`, da auf der Maschine kein JDK liegt) verifiziert:
 
-**Verifiziert:** `./gradlew help`, `./gradlew :android:help` und `./gradlew build` funktionieren
-weiterhin ohne Android-SDK. `./gradlew :android:assembleRelease` kommt über Plugin-Auflösung und
-Android-Projektkonfiguration hinweg; in dieser Umgebung stoppt es anschließend erwartungsgemäß bei
-`SDK location not found`, weil kein `ANDROID_HOME` und kein `local.properties` mit `sdk.dir` vorhanden
-ist. Der ursprüngliche `BaseExtension`-Fehler ist damit beseitigt; ein vollständiger APK-Build braucht
-eine Maschine mit Android-SDK. `:android:help` meldet noch eine Kotlin-Plugin-Classloader-Warnung
-zwischen `:android` und `:core`; das ist dokumentiert, weil die empfohlene Root-`apply false`-Variante
-hier den AGP-9/Kotlin-Legacy-API-Crash reaktiviert.
+- `./gradlew :android:help` läuft sauber durch (nur die bekannte, dokumentierte Kotlin-Plugin-
+  Classloader-Warnung zwischen `:android` und `:core`).
+- `./gradlew :android:buildEnvironment` zeigt korrekt `com.android.tools.build:gradle:9.2.1` +
+  Kotlin-Stack `2.4.0` (incl. `kotlin-gradle-plugin`, `kotlin-gradle-plugin-api`, `compose-compiler-
+  gradle-plugin`).
+- `./gradlew :android:assembleRelease` schlägt **nicht** mehr mit `BaseExtension` fehl, sondern stoppt
+  erwartungsgemäß bei `SDK location not found`, weil der Container kein Android-SDK mitbringt — exakt
+  der Zustand, der bereits in der vorherigen Runde dokumentiert wurde.
+
+**Wichtigste Erkenntnis:** Der `BaseExtension`-Crash war ein Symptom von AGP 9 + KGP 2.4.0, nicht
+ein Repo-Bug *nach* dem letzten Fix. Der Stacktrace aus dem Dashboard-Prompt ist eine Momentaufnahme
+aus dem alten Stand; aktueller `HEAD` enthält die reparierte Plugin-Konfiguration. Ein echter
+Release-APK-Build braucht weiterhin eine Maschine mit installiertem Android-SDK und
+`local.properties`-`sdk.dir` (oder `ANDROID_HOME`). Als Nebeneffekt wurde in dieser Umgebung
+`:desktop:test` ausgeführt: `:core:test`, `:design:test`, `:server:test`, `:desktop:VaultIntegrationTest`
+und `:desktop:SnapshotHarness.renderSignInAndWorkspace` (SKIPPED) sind grün; nur
+`FxBringUpTest.scenesBuildAndStyleHeadlessly` schlägt fehl — wegen fehlendem
+fontconfig/Pango/X11 in der Docker-Umgebung, das ist das bereits dokumentierte
+Umgebungslimit.
 
 ---
 
