@@ -19,6 +19,12 @@ h2 = "2.4.240"
 # Android client (Phase 4). Only consumed by the :android module, which is kept OUT of the root
 # settings.gradle.kts because the Android Gradle Plugin fails to configure without an installed SDK.
 # These versions are a known-good baseline; align AGP with your local SDK + Gradle if needed (RELEASE.md).
+# COMPAT: AGP 8.7.x is NOT compatible with this repo's pinned Gradle (9.6.1 in the wrapper). Applying it
+# on Gradle 9 fails with `NoClassDefFoundError: com/android/build/gradle/BaseExtension` (the old DSL type
+# AGP 9 removed). To build :android against Gradle 9.6.1 you must move to AGP 9.x (AGP 9.0 needs Gradle
+# >= 9.1; AGP 9.2.0 needs >= 9.4.1) AND complete the AGP-9 DSL migration (e.g. `kotlinOptions {}` ->
+# `kotlin { compilerOptions {} }`, drop `BaseExtension` usage / set `android.newDsl=false` as a temporary
+# bridge, bump compileSdk). That migration needs a real Android SDK and has not been done/verified here.
 agp = "8.7.3"
 androidx-core = "1.15.0"
 androidx-activity = "1.9.3"

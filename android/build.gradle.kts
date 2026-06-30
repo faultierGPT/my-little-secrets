@@ -6,9 +6,19 @@
 
 plugins {
     alias(libs.plugins.android.application)
-    alias(libs.plugins.kotlin.android)
+    // `kotlin.android` and `kotlin.plugin.serialization` ship INSIDE the Kotlin Gradle Plugin
+    // (org.jetbrains.kotlin:kotlin-gradle-plugin). That artifact is already on the build's shared
+    // plugin classpath because the ROOT build.gradle.kts declares `kotlin.jvm` / `kotlin.serialization`
+    // (apply false) in its plugins{} block. Re-requesting them HERE with a version makes Gradle try to
+    // verify the requested version against a classpath entry whose version it can't read, which fails
+    // with: "already on the classpath with an unknown version, so compatibility cannot be checked".
+    // So request them WITHOUT a version — the Kotlin version stays pinned once, centrally, via the
+    // catalog's `kotlin` ref through those root aliases.
+    id("org.jetbrains.kotlin.android")
+    id("org.jetbrains.kotlin.plugin.serialization")
+    // The Compose compiler plugin is a SEPARATE artifact (compose-compiler-gradle-plugin), not in
+    // kotlin-gradle-plugin, so it is NOT yet on the classpath — request it (versioned) as usual.
     alias(libs.plugins.kotlin.compose)
-    alias(libs.plugins.kotlin.serialization)
 }
 
 android {
