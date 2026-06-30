@@ -1,0 +1,47 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  jvm:
+    name: Build & test (core, server, desktop, design)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+      - uses: gradle/actions/setup-gradle@v4
+      # Real libsodium (lazysodium-java), embedded H2, and the headless JavaFX bring-up test all run
+      # here — ubuntu runners have fontconfig + freetype, so the UI scene graphs actually build.
+      - name: Build & test
+        run: ./gradlew build --no-daemon --stacktrace
+
+  android:
+    name: Compile Android client
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+      - uses: android-actions/setup-android@v3
+      - uses: gradle/actions/setup-gradle@v4
+      # :android is intentionally absent from settings.gradle.kts (AGP needs an SDK). With the SDK
+      # available here, include it for a compile check only.
+      - name: Enable :android module
+        run: echo 'include(":android")' >> settings.gradle.kts
+      - name: Assemble debug APK
+        run: ./gradlew :android:assembleDebug --no-daemon --stacktrace

@@ -3,6 +3,8 @@
 build/
 **/build/
 out/
+dist/
+.signing/
 
 # IDE
 .idea/

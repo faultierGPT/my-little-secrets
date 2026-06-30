@@ -39,11 +39,27 @@ android {
     // Consume the GENERATED Compose theme tokens (single source of truth in :design).
     sourceSets["main"].kotlin.srcDir("../design/generated/compose")
 
+    // Release signing comes ENTIRELY from the environment; no keystore or password is ever in the
+    // repo (see RELEASE.md / scripts/gen-signing-keys.sh). When the env is unset (e.g. a plain CI
+    // build check), the release APK is left unsigned rather than failing the build.
+    val releaseKeystore = System.getenv("MLS_ANDROID_KEYSTORE")
+    signingConfigs {
+        if (releaseKeystore != null) {
+            create("release") {
+                storeFile = file(releaseKeystore)
+                storePassword = System.getenv("MLS_ANDROID_KEYSTORE_PASSWORD")
+                keyAlias = System.getenv("MLS_ANDROID_KEY_ALIAS") ?: "mls-release"
+                keyPassword = System.getenv("MLS_ANDROID_KEY_PASSWORD")
+                    ?: System.getenv("MLS_ANDROID_KEYSTORE_PASSWORD")
+            }
+        }
+    }
+
     buildTypes {
         release {
             isMinifyEnabled = true
             proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
-            // Release signing is configured in Phase 6 / RELEASE.md (keystore via env, never committed).
+            signingConfig = if (releaseKeystore != null) signingConfigs.getByName("release") else null
         }
     }
 

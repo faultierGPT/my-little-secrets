@@ -313,7 +313,12 @@ client remains out of scope (§2.3).
 
 ---
 
-## 7. Signing & artifact verification _(shape fixed; specifics completed at release)_
+## 7. Signing & artifact verification
+
+> Implemented: `scripts/gen-signing-keys.sh`, `scripts/package-desktop.sh`,
+> `scripts/sign-artifacts.sh`, `scripts/verify-artifacts.sh`, and the `.github/workflows/`
+> CI + tag-driven release pipeline. Step-by-step publisher and verifier procedures live in
+> [`RELEASE.md`](RELEASE.md). Keys come only from `.signing/` (gitignored) or CI secrets.
 
 ### 7.1 Android APK
 

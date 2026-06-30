@@ -48,8 +48,12 @@ All primitives are **libsodium** (via lazysodium). Nothing is hand-rolled.
 ./gradlew :desktop:test         # desktop controller, end-to-end vs an in-process server
 ./gradlew :design:test          # design-token invariants (WCAG contrast, single accent, …)
 ./gradlew :desktop:run          # launch the JavaFX desktop app
+./scripts/package-desktop.sh    # self-contained desktop artifact (JavaFX + JRE bundled)
 docker compose up --build       # run the server locally with PostgreSQL
 ```
+
+CI builds + tests every module on push/PR and compiles the Android client; tagging `v*` runs the
+signed-release pipeline. See [`RELEASE.md`](RELEASE.md) for signing and **how to verify a download**.
 
 Toolchain: JDK 21, Gradle via the committed wrapper (`./gradlew`). Dependency versions are
 pinned in [`gradle/libs.versions.toml`](gradle/libs.versions.toml), verified against current
