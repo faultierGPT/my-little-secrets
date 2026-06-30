@@ -225,6 +225,31 @@ object JavaFxCssRenderer {
         )
         appendLine(".button.mls-danger:hover { -fx-background-color: ${cssVar("semantic.danger")}; -fx-text-fill: ${cssVar("semantic.danger.on")}; }")
         appendLine()
+        appendLine("/* icon-only: quiet, borderless, square padding */")
+        appendLine(
+            ".button.mls-icon-button {\n" +
+                "    -fx-background-color: transparent;\n" +
+                "    -fx-border-color: transparent;\n" +
+                "    -fx-background-radius: ${rad("radius.sm")};\n" +
+                "    -fx-border-radius: ${rad("radius.sm")};\n" +
+                "    -fx-padding: 6 8 6 8;\n" +
+                "}",
+        )
+        appendLine(".button.mls-icon-button:hover { -fx-background-color: ${cssVar("state.hover")}; }")
+        appendLine(".button.mls-icon-button:pressed { -fx-background-color: ${cssVar("state.pressed")}; }")
+        appendLine(".button.mls-icon-button:focused { -fx-border-color: ${cssVar("focus.ring")}; -fx-border-width: ${MlsTokens.FOCUS_RING_DP}; }")
+        appendLine()
+        appendLine("/* ---- tag chip ---- */")
+        appendLine(
+            ".mls-chip {\n" +
+                "    -fx-background-color: ${cssVar("accent.subtle")};\n" +
+                "    -fx-text-fill: ${cssVar("text.secondary")};\n" +
+                "    -fx-background-radius: ${rad("radius.pill")};\n" +
+                "    -fx-padding: 2 10 2 10;\n" +
+                "    -fx-font-size: ${MlsTokens.Type.meta.sizeSp}px;\n" +
+                "}",
+        )
+        appendLine()
         appendLine("/* ---- text inputs ---- */")
         appendLine(
             ".text-field, .text-area {\n" +
@@ -284,8 +309,12 @@ object JavaConstantsRenderer {
         appendLine()
         for (r in MlsTokens.Radius.all) appendLine("    public static final int ${screamingSnake(r.name)} = ${r.dp};")
         appendLine()
-        appendLine("    public static final int BORDER_HAIRLINE = ${MlsTokens.BORDER_HAIRLINE_DP};")
-        appendLine("    public static final int FOCUS_RING = ${MlsTokens.FOCUS_RING_DP};")
+        // Stroke widths are namespaced STROKE_* so they cannot collide with the BORDER_HAIRLINE /
+        // FOCUS_RING *color* constants above (a flat Java class shares one identifier namespace).
+        appendLine("    /** Hairline border/divider width in dp. */")
+        appendLine("    public static final int STROKE_HAIRLINE = ${MlsTokens.BORDER_HAIRLINE_DP};")
+        appendLine("    /** Keyboard-focus ring width in dp. */")
+        appendLine("    public static final int STROKE_FOCUS = ${MlsTokens.FOCUS_RING_DP};")
         appendLine()
         for (m in MlsTokens.Motion.all) appendLine("    public static final int ${screamingSnake(m.name)}_MS = ${m.ms};")
         appendLine("}")

@@ -39,7 +39,7 @@ import kotlinx.serialization.json.Json
  * Optional TLS certificate pinning (SECURITY.md) is configured on the injected engine by the
  * platform layer; this class stays transport-agnostic.
  */
-class KtorApiClient(
+class KtorApiClient @JvmOverloads constructor(
     private val baseUrl: String,
     engine: HttpClientEngine = CIO.create(),
     override var token: String? = null,

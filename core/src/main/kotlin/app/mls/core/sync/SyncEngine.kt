@@ -37,7 +37,7 @@ data class SyncResult(
  * immediately (nothing is plaintext at rest), and [sync] PULLs before it PUSHes so a concurrent
  * edit on another device is detected as a conflict instead of being silently overwritten.
  */
-class SyncEngine(
+class SyncEngine @JvmOverloads constructor(
     private val api: MlsApi,
     private val store: NoteStore,
     private val accountKey: SecretBytes,

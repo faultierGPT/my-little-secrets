@@ -39,4 +39,16 @@ class RendererTest {
         assertTrue(java.contains("SERIF_FAMILIES"))
         assertTrue(java.contains("public static final int RADIUS_MD = 10;"))
     }
+
+    @Test
+    fun `java constants have no duplicate field identifiers`() {
+        // A flat Java class shares ONE identifier namespace across all types, so a color named
+        // BORDER_HAIRLINE and an int width also named BORDER_HAIRLINE would be a compile error.
+        // (Compose namespaces these under MlsColor / MlsStroke, hence no collision there.)
+        val java = JavaConstantsRenderer.render()
+        val decl = Regex("""public static final \S+(?:\[])? (\w+)\s*=""")
+        val names = decl.findAll(java).map { it.groupValues[1] }.toList()
+        val dupes = names.groupingBy { it }.eachCount().filterValues { it > 1 }.keys
+        assertTrue(dupes.isEmpty(), "duplicate Java field identifiers would not compile: $dupes")
+    }
 }

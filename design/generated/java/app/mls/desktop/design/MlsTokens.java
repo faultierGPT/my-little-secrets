@@ -62,8 +62,10 @@ public final class MlsTokens {
     public static final int RADIUS_LG = 14;
     public static final int RADIUS_PILL = 999;
 
-    public static final int BORDER_HAIRLINE = 1;
-    public static final int FOCUS_RING = 2;
+    /** Hairline border/divider width in dp. */
+    public static final int STROKE_HAIRLINE = 1;
+    /** Keyboard-focus ring width in dp. */
+    public static final int STROKE_FOCUS = 2;
 
     public static final int MOTION_FAST_MS = 120;
     public static final int MOTION_BASE_MS = 200;

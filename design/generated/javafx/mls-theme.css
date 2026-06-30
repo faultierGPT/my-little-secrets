@@ -138,6 +138,27 @@
 }
 .button.mls-danger:hover { -fx-background-color: -mls-semantic-danger; -fx-text-fill: -mls-semantic-danger-on; }
 
+/* icon-only: quiet, borderless, square padding */
+.button.mls-icon-button {
+    -fx-background-color: transparent;
+    -fx-border-color: transparent;
+    -fx-background-radius: 6;
+    -fx-border-radius: 6;
+    -fx-padding: 6 8 6 8;
+}
+.button.mls-icon-button:hover { -fx-background-color: -mls-state-hover; }
+.button.mls-icon-button:pressed { -fx-background-color: -mls-state-pressed; }
+.button.mls-icon-button:focused { -fx-border-color: -mls-focus-ring; -fx-border-width: 2; }
+
+/* ---- tag chip ---- */
+.mls-chip {
+    -fx-background-color: -mls-accent-subtle;
+    -fx-text-fill: -mls-text-secondary;
+    -fx-background-radius: 999;
+    -fx-padding: 2 10 2 10;
+    -fx-font-size: 12px;
+}
+
 /* ---- text inputs ---- */
 .text-field, .text-area {
     -fx-font-family: "Geist", "IBM Plex Sans", "Inter", system-ui, sans-serif;
