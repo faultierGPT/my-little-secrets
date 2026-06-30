@@ -17,8 +17,14 @@ by design.
 | [`server/`](server/) | **Ktor** sync server, stores only ciphertext (PostgreSQL; H2 for tests) | ✅ built + tested |
 | `core/` networking | Typed API client + offline-first sync + encrypted cache | ✅ built + tested |
 | [`design/`](design/) | Toolkit-neutral design tokens → Compose theme + JavaFX CSS, one source | ✅ built + tested |
-| `android/` | **Jetpack Compose** client (signed APK) | ⏳ Phase 4 (UI) |
-| `desktop/` | **Pure Java + JavaFX** client (GPG-signed AppImage/.deb/.rpm) | ⏳ Phase 5 |
+| [`desktop/`](desktop/) | **Pure Java + JavaFX** client (GPG-signed artifacts) | ✅ built + end-to-end tested |
+| [`android/`](android/) | **Jetpack Compose** client (signed APK) | 📝 source complete (needs an Android SDK to build) |
+
+The `desktop/` client reaches the core's suspend API through a small blocking adapter in
+`core` (`app.mls.core.jvm`), keeping the desktop module 100% Java. The `android/` client uses the
+suspend API directly from coroutines. `android/` is intentionally **not** in the root
+`settings.gradle.kts` (the Android Gradle Plugin can't configure without an SDK, which would break
+the other modules' builds) — see [`android/README.md`](android/README.md).
 
 ## Crypto in one box (full detail in `SECURITY.md`)
 
@@ -36,10 +42,13 @@ All primitives are **libsodium** (via lazysodium). Nothing is hand-rolled.
 ## Build & test
 
 ```bash
-./gradlew test            # crypto core + server suites (real libsodium, embedded H2)
-./gradlew :core:test      # crypto core only
-./gradlew :server:test    # server only
-docker compose up --build # run the server locally with PostgreSQL
+./gradlew test                  # crypto core + server suites (real libsodium, embedded H2)
+./gradlew :core:test            # crypto core only
+./gradlew :server:test          # server only
+./gradlew :desktop:test         # desktop controller, end-to-end vs an in-process server
+./gradlew :design:test          # design-token invariants (WCAG contrast, single accent, …)
+./gradlew :desktop:run          # launch the JavaFX desktop app
+docker compose up --build       # run the server locally with PostgreSQL
 ```
 
 Toolchain: JDK 21, Gradle via the committed wrapper (`./gradlew`). Dependency versions are

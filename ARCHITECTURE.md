@@ -11,12 +11,12 @@ devices. See `SECURITY.md` for the threat model and crypto contract — this doc
 
 ```
 my-little-secrets/
-├── core/        Kotlin JVM library — the security boundary. Crypto, models, (later) API
-│                client + sync + encrypted local cache. Shared by BOTH clients as a jar.
+├── core/        Kotlin JVM library — the security boundary. Crypto, models, API
+│                client + sync + encrypted local cache, + a blocking adapter for Java.
 ├── server/      Ktor + PostgreSQL. Moves and stores ciphertext only.            (Phase 2)
-├── android/     Jetpack Compose (Kotlin) client over :core.                     (Phase 4)
-├── desktop/     Pure Java + JavaFX client over :core (as a jar).                (Phase 5)
-├── design/      Toolkit-neutral design tokens + per-toolkit theme mappers.      (Phase 4)
+├── desktop/     Pure Java + JavaFX client over :core (as a jar).        ✅ built + e2e-tested
+├── android/     Jetpack Compose (Kotlin) client over :core.        📝 source (needs Android SDK)
+├── design/      Toolkit-neutral design tokens + per-toolkit theme mappers.   ✅ built + tested
 ├── scripts/     Keystore/GPG generation, build, sign, verify.                   (Phase 6)
 ├── SECURITY.md  Threat model, crypto scheme, signing/verification.
 ├── ARCHITECTURE.md
@@ -73,8 +73,30 @@ core/src/main/kotlin/app/mls/core/
     └── EncryptedBlob.kt   Wire form of one AEAD output (base64).
 ```
 
-Later phases extend `core/` with `api/` (Ktor client), `sync/` (pull-since/push, tombstones,
-client-side conflict resolution), and `store/` (encrypted offline cache).
+`core/` also contains `api/` (Ktor client), `sync/` (pull-since/push, tombstones, client-side
+conflict resolution), `store/` (encrypted offline cache), and `jvm/` — a small **blocking adapter**
+(`BlockingApi`, `BlockingSync`) that runs the suspending API to completion for the pure-Java desktop
+client, which can't call Kotlin `suspend` functions directly.
+
+## Clients
+
+Both clients are thin UI over the same `core` session primitives; the controller logic is nearly
+identical, differing only in how each reaches the suspend API.
+
+```
+desktop/  (pure Java + JavaFX)                  android/  (Kotlin + Compose)
+  session/Vault.java   controller, blocking       session/AndroidVault.kt  controller, coroutines
+  ui/*.java            JavaFX views + CSS theme    ui/*.kt                  Compose screens + theme
+  reaches core via app.mls.core.jvm.Blocking*      reaches core's suspend API directly
+  design tokens: generated MlsTokens.java + CSS    design tokens: generated MlsDesignTokens.kt
+```
+
+- **Desktop** is verified end-to-end here: `VaultIntegrationTest` drives the Java controller against
+  a real in-process Netty+H2 server (`app.mls.server.Embedded`) over a loopback socket —
+  register → encrypt → sync → second-device pull → decrypt → offline-unlock → wrong-password reject.
+- **Android** reuses `core` unchanged; `Sodium.useBinding(...)` installs `lazysodium-android` at
+  startup. It is kept out of the root `settings.gradle.kts` because the Android Gradle Plugin can't
+  configure without an SDK (see `android/README.md`).
 
 ## Crypto primitive choices (and why)
 

@@ -282,6 +282,35 @@ were fixed:
 - **Recovery code and the returned `authKey` are now wipeable `SecretBytes`** (were bare arrays),
   closing the last gaps in the zeroization discipline.
 
+### 6.2 Client-side security postures
+
+Both clients hold the unlocked `accountKey` only as a wipeable `SecretBytes`, cache notes via the
+core's encrypted-at-rest store, and re-derive nothing to disk in the clear. Password input is
+converted to bytes and wiped (the UI toolkits' password widgets hand back an unavoidable `String`/
+`char[]`, documented honestly — every step we control stays off the immutable-`String` heap).
+
+**Desktop (JavaFX):**
+- Idle **auto-lock** wipes the in-memory account key and closes the encrypted store after a timeout.
+- **Clipboard auto-clear** for copied note bodies / the recovery code (cleared after 30 s, only if
+  still ours).
+- **Offline unlock** from a locally cached, *non-secret* profile (public salt/params + the
+  KEK-wrapped account key) — useless without the password.
+- Reaches the suspend API only through `core`'s blocking adapter; no plaintext crosses a thread
+  boundary.
+
+**Android (Compose):**
+- **`FLAG_SECURE`** blocks screenshots, screen recording, and the recents/overview thumbnail.
+- **Lock on background** (`onStop`) wipes the account key; re-unlock is required to return.
+- **Biometric unlock** seals the account key under a hardware-backed Keystore AES-GCM key requiring a
+  strong biometric (`setUserAuthenticationRequired`, `setInvalidatedByBiometricEnrollment`); the key
+  is never persisted in the clear and exists in memory only after a successful auth.
+- **Clipboard auto-clear** (30 s) and **no backup leakage** (`allowBackup=false` + data-extraction
+  rules exclude all app data from cloud backup and device transfer).
+
+These mitigate *casual* local exposure (shoulder-surfing, an unlocked-but-idle device, clipboard
+history, OS backups). They do **not** defend against malware/root on the device — a compromised
+client remains out of scope (§2.3).
+
 ---
 
 ## 7. Signing & artifact verification _(shape fixed; specifics completed at release)_

@@ -1,4 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="app_name">my-little-secrets</string>
+    <!-- Sync server. 10.0.2.2 is the host machine's loopback as seen from the Android emulator;
+         change to your self-hosted HTTPS URL for a real device/build. -->
+    <string name="server_url" translatable="false">http://10.0.2.2:8080</string>
 </resources>
