@@ -1,5 +1,6 @@
 package app.mls.core.crypto
 
+import com.goterl.lazysodium.LazySodium
 import com.goterl.lazysodium.LazySodiumJava
 import com.goterl.lazysodium.SodiumJava
 import com.goterl.lazysodium.interfaces.AEAD
@@ -20,8 +21,23 @@ import com.sun.jna.NativeLong
  */
 object Sodium {
 
-    /** Process-wide libsodium handle. lazysodium loads the bundled native library on first use. */
-    val ls: LazySodiumJava = LazySodiumJava(SodiumJava())
+    // Default binding: lazysodium-java loads the bundled desktop/JVM/server native library. The
+    // crypto contract (Argon2id / XChaCha20-Poly1305 / crypto_kdf) is identical across bindings.
+    @Volatile
+    private var binding: LazySodium = LazySodiumJava(SodiumJava())
+
+    /** Process-wide libsodium handle. */
+    val ls: LazySodium get() = binding
+
+    /**
+     * Install a platform-specific libsodium binding. Android MUST call this ONCE at process start
+     * (before any crypto) with `LazySodiumAndroid(SodiumAndroid())`, since lazysodium-java's bundled
+     * natives don't cover Android ABIs. No-op on desktop/server, which use the JVM binding by default.
+     */
+    @JvmStatic
+    fun useBinding(platformBinding: LazySodium) {
+        binding = platformBinding
+    }
 
     // ---- Sizes (libsodium-standard constants, surfaced via the binding) ----
     val AEAD_KEY_BYTES: Int = AEAD.XCHACHA20POLY1305_IETF_KEYBYTES       // 32

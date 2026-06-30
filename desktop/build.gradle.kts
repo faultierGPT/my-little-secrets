@@ -57,9 +57,10 @@ tasks.test {
     systemProperty("glass.platform", "Monocle")
     systemProperty("monocle.platform", "Headless")
     systemProperty("prism.order", "sw")
-    // On-demand snapshot rendering (SnapshotHarness): forward a font directory + output dir from the
-    // invoking JVM when present, so a bare sandbox with no system fonts can still render real PNGs.
-    listOf("mls.snapshot.dir", "prism.fontdir", "prism.embeddedfonts", "prism.verbose", "javafx.verbose").forEach { key ->
+    // On-demand snapshot rendering (SnapshotHarness): forward an output dir + a font directory from
+    // the invoking JVM when present, so a machine with fonts can render real PNGs of the UI. These
+    // are unset in a normal build, so the harness stays disabled (it is @EnabledIfSystemProperty).
+    listOf("mls.snapshot.dir", "prism.fontdir", "prism.embeddedfonts").forEach { key ->
         System.getProperty(key)?.let { systemProperty(key, it) }
     }
     System.getProperty("mls.ldlibrarypath")?.let { environment("LD_LIBRARY_PATH", it) }

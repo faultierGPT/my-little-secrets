@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Mirrors design token bg.base (#16130F). Used only for the window/splash background; all
+         in-app color comes from the generated Compose tokens (ui/theme). -->
+    <color name="bg_base">#16130F</color>
+</resources>
