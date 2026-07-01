@@ -26,13 +26,17 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
+import androidx.activity.compose.BackHandler
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.unit.dp
 import app.mls.android.session.NoteUi
 
@@ -52,9 +56,23 @@ fun VaultScreen(
 ) {
     var editing by remember { mutableStateOf<NoteUi?>(null) }
     var isNew by remember { mutableStateOf(false) }
+    var query by remember { mutableStateOf("") }
 
     val current = editing
     if (current != null) {
+        // Hardware/gesture back must pop the editor back to the list (with auto-save), NOT close
+        // the activity. Without this, Android's back button in the editor exits the whole app.
+        BackHandler {
+            val title = current.title
+            val body = current.body
+            val tags = current.tags
+            if (isNew && title.isBlank() && body.isBlank() && tags.isEmpty()) {
+                // discard an empty new note
+            } else {
+                onSave(current.id.ifBlank { null }, title, body, tags)
+            }
+            editing = null
+        }
         NoteEditor(
             note = current,
             isNew = isNew,
@@ -72,6 +90,12 @@ fun VaultScreen(
             },
         )
         return
+    }
+
+    // Client-side search: case-insensitive substring match against title, body and tags.
+    // Empty query shows everything; empty result shows a contextual hint instead of nothing.
+    val filtered by remember(state.notes, query) {
+        derivedStateOf { filterNotes(state.notes, query) }
     }
 
     Scaffold(
@@ -103,6 +127,12 @@ fun VaultScreen(
                     modifier = Modifier.padding(horizontal = 16.dp, vertical = 6.dp),
                 )
             }
+            // Search bar — sits between the status line and the list. Single line, clear button
+            // appears only when the field has content. Filtering is done above (`filtered`).
+            SearchField(
+                query = query,
+                onQueryChange = { query = it },
+            )
             if (state.notes.isEmpty()) {
                 Column(Modifier.fillMaxSize().padding(32.dp), verticalArrangement = Arrangement.Center) {
                     Text(
@@ -111,9 +141,17 @@ fun VaultScreen(
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                 }
+            } else if (filtered.isEmpty()) {
+                Column(Modifier.fillMaxSize().padding(32.dp), verticalArrangement = Arrangement.Center) {
+                    Text(
+                        "No notes match \"${query.trim()}\".",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
             } else {
                 LazyColumn(Modifier.fillMaxSize()) {
-                    items(state.notes, key = { it.id }) { note ->
+                    items(filtered, key = { it.id }) { note ->
                         NoteRow(note) { editing = note; isNew = false }
                         HorizontalDivider(color = MaterialTheme.colorScheme.outline)
                     }
@@ -121,6 +159,44 @@ fun VaultScreen(
             }
         }
     }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun SearchField(query: String, onQueryChange: (String) -> Unit) {
+    OutlinedTextField(
+        value = query,
+        onValueChange = onQueryChange,
+        placeholder = { Text("Search notes") },
+        singleLine = true,
+        keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
+        trailingIcon = {
+            if (query.isNotEmpty()) {
+                TextButton(onClick = { onQueryChange("") }) { Text("✕") }
+            }
+        },
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 16.dp, vertical = 8.dp),
+    )
+}
+
+/**
+ * Case-insensitive substring match against title, body and joined tags. Empty/whitespace query
+ * returns the input unchanged. Pure function so it's safe inside `derivedStateOf`.
+ */
+private fun filterNotes(notes: List<NoteUi>, query: String): List<NoteUi> {
+    val q = query.trim()
+    if (q.isEmpty()) return notes
+    return notes.filter { it.matches(q) }
+}
+
+private fun NoteUi.matches(query: String): Boolean {
+    val needle = query.lowercase()
+    if (title.lowercase().contains(needle)) return true
+    if (body.lowercase().contains(needle)) return true
+    if (tags.any { it.lowercase().contains(needle) }) return true
+    return false
 }
 
 @Composable
