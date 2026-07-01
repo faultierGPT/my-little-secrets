@@ -8,17 +8,22 @@ repositories {
 }
 
 dependencies {
-    // The crypto core exposes the libsodium binding through its public API (Sodium.kt holds a
-    // `LazySodium` instance and uses `com.sun.jna.NativeLong` in some signatures). These are
-    // intentionally `compileOnly` so the platform-specific binding does NOT leak transitively to
-    // every consumer of :core:
+    // The crypto core exposes the libsodium binding through the `LazySodium` interface and
+    // `com.sun.jna.NativeLong` (used in some signatures). These are intentionally `compileOnly`
+    // so the JVM binding does NOT transitively leak to every consumer of `:core`:
     //   - JVM clients (desktop, server) bring in `lazysodium-java` + `jna` themselves.
     //   - Android brings in `lazysodium-android` (AAR) + `jna` (AAR).
     // Without this split the Android release classpath would carry BOTH `lazysodium-java` (jar)
     // and `lazysodium-android` (aar), and AGP's `checkReleaseDuplicateClasses` task would fail
     // with hundreds of duplicate `com.goterl.lazysodium.*` + `com.sun.jna.*` entries.
+    //
+    // `Sodium.<clinit>` is engineered to NEVER reference any concrete libsodium-flavored type at
+    // class-init time. The `useBinding(...)` call installs a binding (JVM or Android) at process
+    // start, after which the binding's class loader provides the types `pwhash(...)` needs
+    // reflectively.
     compileOnly(libs.lazysodium.java)
     compileOnly(libs.jna) // lazysodium uses JNA NativeLong in its public API
+
     implementation(libs.kotlinx.serialization.json)
 
     // Networking + sync (Phase 3). Engine is injectable; CIO is the default JVM/Android engine.
@@ -33,9 +38,9 @@ dependencies {
     testRuntimeOnly(libs.junit.platform.launcher)
     testImplementation(libs.ktor.client.mock)
     testImplementation(libs.kotlinx.coroutines.test)
-    // The default `Sodium` binding is `LazySodiumJava(SodiumJava())`. Tests run on the JVM, so
-    // bring the JVM binding in at test scope. (Production JVM apps — desktop, server — also pull
-    // it in as `implementation`; Android replaces the binding via `Sodium.useBinding(...)`.)
+    // The JVM bindings are `compileOnly` above — they are NOT on `:core`'s runtime classpath,
+    // but they ARE on the test classpath so the BeforeAll extension can construct a real
+    // `LazySodiumJava` binding for `Sodium.useBinding(...)`.
     testImplementation(libs.lazysodium.java)
     testImplementation(libs.jna)
 }

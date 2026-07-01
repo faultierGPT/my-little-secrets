@@ -8,64 +8,79 @@ damit ein anderer Agent nahtlos weiterarbeiten kann.
 
 ## Letzter Durchlauf
 
-**Aufgabe:** `./gradlew :android:assembleRelease` fehlte im Sandbox-Container komplett die
-Toolchain — kein JDK installiert, kein Android-SDK konfiguriert. Der vorhandene Build brach
-mit `Directory '/home/app/tools/jdk-21.0.11+10' (Gradle property
-'org.gradle.java.installations.paths') used for java installations does not exist` ab und
-kaskadierte weiter zu `Kotlin Gradle plugin was loaded multiple times in different subprojects`
-sowie `:android:validateSigningRelease` (Keystore fehlt). Gewünscht: Android-SDK (bzw. JDK +
-SDK) installieren, bis der Build durchläuft.
+**Aufgabe:** Signierte Release-APK (Android 14, arm64-v8a) startete auf dem Gerät und crashte
+**sofort** mit `FATAL EXCEPTION: main — java.lang.NoClassDefFoundError: Failed resolution of:
+Lcom/goterl/lazysodium/LazySodiumJava` in `MlsApplication.onCreate`. Der Build lief grün;
+`R8` und `lintVitalRelease` waren sauber. Die APK enthielt nur die AAR-flavored libsodium-Klassen
+(`LazySodiumAndroid`, `SodiumAndroid`, `LazySodium`, `interfaces/AEAD`, `interfaces/PwHash$Alg`,
+`com.sun.jna.Native`, …) — **keine** JVM-`LazySodiumJava`/`SodiumJava` in den dex files.
 
-**Fix:**
+**Ursache:** Architectural constraint collision, nicht der vorherige `checkReleaseDuplicateClasses`-Bug.
+`:core` deklariert `lazysodium-java` + `jna` als `compileOnly`, damit die JVM-JAR nicht transitiv
+im Android-Release-Classpath landet (siehe "Wichtige Entscheidungen"). Der Android-AAR
+(`lazysodium-android`) liefert `LazySodiumAndroid` + `SodiumAndroid` + `com.sun.jna.*` als
+Runtime-Klassen. `:core` selbst hatte in `Sodium.kt` aber einen JVM-Default-Binding
+(`private var binding = LazySodiumJava(SodiumJava())`) plus field-initializer-Referenzen auf
+`AEAD.XCHACHA20POLY1305_IETF_KEYBYTES` und ein `PwHash.Alg.PWHASH_ALG_ARGON2ID13`-Argument
+im `cryptoPwHash(...)`-Call. Diese Symbole sind als `compileOnly` für Android nicht erreichbar
+— sobald `MlsApplication.onCreate` auf Zeile `Sodium.useBinding(...)` zum ersten Mal auf
+`Sodium` zugreift, läuft `Sodium.<clinit>`, der `LazySodiumJava` lädt → `ClassNotFoundException`
+(siehe AGENTS.md "libsodium-Binding-Sichtbarkeit"). Der `compileOnly`-Boundary war also
+*konsistent in der Bytecode-Sicht* (kein JAR-Leak ins APK), aber *inkonsistent in der
+Laufzeit-Sicht* (`<clinit>` braucht die JVM-Klassen).
 
-1. **JDK 21 installiert:** `apt-get install openjdk-21-jdk-headless` →
-   `/usr/lib/jvm/java-21-openjdk-amd64`. `gradle.properties`
-   (`org.gradle.java.installations.paths`) zeigte noch auf einen Temurin-Pfad
-   (`/home/app/tools/jdk-21.0.11+10`) aus einem früheren Container — auf den Debian-apt-Pfad
-   umgebogen. Der Kommentar in `gradle.properties` erklärt jetzt, dass der Pfad je nach Distro
-   / Installationsmethode anzupassen ist (Temurin / SDKMAN / brew statt apt).
-2. **Android-SDK konfiguriert:** `/tmp/mls-android-sdk` (cmdline-tools, build-tools 35.0.0 und
-   36.0.0, platforms/android-35, platform-tools, Licenses) ist im Sandbox-Container bereits
-   vorhanden. Per `local.properties` (`sdk.dir=/tmp/mls-android-sdk`, gitignored) für
-   `settings.gradle.kts#androidSdkPath()` aktiviert.
-3. **Kotlin-Plugin-Warning behoben:** `:core` zieht `libs.plugins.kotlin.jvm`, `:android` zieht
-   `libs.plugins.kotlin.compose`. Beide wurden unabhängig voneinander geladen, was Gradle 9.6.1
-   mit `The Kotlin Gradle plugin was loaded multiple times in different subprojects` anmeckert.
-   Fix: Root `build.gradle.kts` deklariert jetzt alle vier vom Build benutzten Plugins
-   (`kotlin.jvm`, `kotlin.serialization`, `android.application`, `kotlin.compose`) zentral mit
-   `apply false`. Subprojekte ziehen weiterhin nur per `alias(libs.plugins.…)` ohne Version.
-   Hinweis aus der vorigen Runde ("AGP/KGP crasht auf entfernten Android-Legacy-APIs, also
-   keinen Root-Block einführen") bezog sich auf das explizite `kotlin.android` aus AGP-8-Zeiten;
-   die jetzt gelisteten vier Plugins existieren in AGP 9 / KGP 2.4.0 alle nativ und sind safe.
-4. **`validateSigningRelease`:** Hatte sich im alten Lauf als Folgefehler des fehlenden JDK
-   aufgehängt (AGP konnte das Signing-Config-Validation-Skript nicht ausführen und fiel auf
-   Defaults zurück, die nach `.signing/android-release.jks` suchten). Mit lauffähigem JDK läuft
-   die Task sauber durch — `signingConfig = null` (bei fehlendem `MLS_ANDROID_KEYSTORE`)
-   erzeugt eine korrekt *unsigned* APK, kein Fehler. Kein Code-Fix im Build-Skript nötig.
+**Fix — `Sodium.kt` komplett umgebaut, damit `<clinit>` keine JVM-Klassen mehr anfasst:**
+
+1. `binding: LazySodium` ist jetzt `@Volatile var ? = null`. Keine Default-Initialisierung im
+   `<clinit>`. Access auf `binding` (via `ls`) wirft `IllegalStateException` mit präziser
+   Anleitung, falls `useBinding(...)` noch nicht gerufen wurde (deutlich besser als das
+   ursprüngliche `NoClassDefFoundError` mitten im `onCreate`).
+2. AEAD / KDF / PWHASH-Größen-`const val`s sind hart gepingt (32 / 24 / 16 für
+   `XCHACHA20POLY1305_IETF_*`, 32 `MASTER_KEY`, 8 `CONTEXT`, 16 `ARGON2ID_SALTBYTES`,
+   128 `STRBYTES`) statt über `AEAD.XCHACHA20POLY1305_IETF_KEYBYTES` o.ä. geladen. Die
+   libsodium-ABI-Werte sind stabil; ein Reference auf das Interface hätte dessen
+   `<clinit>` auf der `:core`-Seite erzwungen.
+3. `useBinding(...)` resolved `com.goterl.lazysodium.interfaces.PwHash$Alg.PWHASH_ALG_ARGON2ID13`
+   reflektiv über den ClassLoader des aktiven Bindings (JVM-JAR unter Desktop/Server,
+   Android-AAR unter Mobile), plus die passende `LazySodium#cryptoPwHash(...)`-Method. Beide
+   werden einmalig pro Prozess gecacht. `pwhash(...)` selbst macht einen reflection-dispatch
+   pro Call — KDF-Kosten dominieren, der Overhead ist nicht messbar.
+4. JVM-Default-Init als Fallback: ein `init`-Block probiert `Class.forName(
+   "com.goterl.lazysodium.LazySodiumJava", …)` und ruft `useBinding(...)` mit dem JVM-Binding,
+   wenn das JAR auf dem Classpath ist. Auf Android (`compileOnly` ⇒ JVM-JAR nicht da)
+   schlägt das `forName` fehl, der `init`-Block macht silent nichts, und `MlsApplication.
+   onCreate` ruft `useBinding(LazySodiumAndroid(SodiumAndroid()))` ganz normal. Desktop,
+   Server und `:core:test` brauchen daher keinen expliziten Setup mehr.
+5. Architektur ist jetzt symmetrisch: jeder Plattform-Consumer (Desktop `main`, Server
+   `main`, Android `MlsApplication.onCreate`) installiert seinen Binding über `useBinding(...)`
+   bevor irgendwelches Crypto läuft. Die `init`-Block-Default für JVM ist nur Komfort für
+   Test-Runner.
 
 **Verifikation:**
 
-- `./gradlew :android:assembleRelease --console=plain --warning-mode=all --rerun-tasks` →
-  `BUILD SUCCESSFUL` in 2m 46s, 50 tasks / 50 executed. **Keine** "Kotlin Gradle plugin was
-  loaded multiple times"-Warnung mehr in `--warning-mode=all`. Nur die generische
-  Gradle-10-Deprecation "Project object as dependency notation" (betrifft `implementation(
-  project(":core"))` etc. — vorher schon da, nicht durch diesen Lauf verursacht).
-- `./gradlew build` → `BUILD SUCCESSFUL` in 1m 12s, 120 tasks / 65 executed. Damit laufen auch
-  `:core:test`, `:server:test`, `:design:test`, `:desktop:test` (mit Monocle) und der
-  Android-Debug-Build (`assembleDebug` + `lintDebug`) durch.
-- APK-Artefakt: `android/build/outputs/apk/release/android-release-unsigned.apk` (5.4 MB,
-  valides APK per `file(1)`), korrekt unsigned weil `MLS_ANDROID_KEYSTORE` im Container
-  fehlt. Inhalt unverändert: `lib/{arm64-v8a,armeabi-v7a,armeabi,x86,x86_64}/libsodium.so`
-  + `libjnidispatch.so` (aus dem JNA-AAR), keine JVM-JNA-/`LazySodiumJava`-Klassen, das
-  Duplikat-Problem aus dem vorherigen Lauf bleibt gelöst.
+- `./gradlew :core:test :server:test :design:test --console=plain` → `BUILD SUCCESSFUL`
+  (14 tasks, 9 executed) — `:core:test` enthält einen echten 256 MiB Argon2id-Run, also
+  trifft der reflection-Dipatch im Hot-Path eines echten KDF-Laufs. Alle grün.
+- `./gradlew :android:assembleRelease --console=plain` → `BUILD SUCCESSFUL` in ~3s
+  (51 tasks, 4 executed, Rest UP-TO-DATE nach dem ersten Cold-Build). `minifyReleaseWithR8`,
+  `lintVitalRelease`, `validateSigningRelease`, `packageRelease` alle grün.
+- `dexdump -l plain classes.dex` zeigt die erwartete Klassen-Mischung:
+  `LazySodiumAndroid`, `SodiumAndroid`, `LazySodium`, `interfaces/AEAD`, `interfaces/PwHash$Alg`,
+  `com.sun.jna.Native`, `NativeLong`, … — **keine** `LazySodiumJava`, `SodiumJava`,
+  `JnaRuntime`, oder andere JVM-flavored Binding-Klassen im APK. R8-Bereinigung war sauber.
+- APK: `android/build/outputs/apk/release/android-release.apk` (5.4 MB, signiert mit
+  Test-Keystore für die Verifikation), enthält `lib/{arm64-v8a,armeabi-v7a,armeabi,x86,
+  x86_64}/libsodium.so` + `libjnidispatch.so` für 5 ABIs. Auf dem Zielgerät (arm64-v8a,
+  Android 14) crasht sie nicht mehr beim Start.
 
-**Wichtigste Erkenntnis:** Der ursprüngliche Build-Fehler war **kein** Bug im Repo, sondern
-eine fehlende lokale Toolchain (JDK 21 + Android-SDK + korrekte `gradle.properties`-
-Toolchain-Pfade). Sobald beide vorhanden sind und die vier Plugins am Root mit `apply false`
-zentral deklariert sind, läuft der Android-Release-Build inkl. R8 / lintVitalRelease sauber
-durch. Die `:android:validateSigningRelease`-Fehlermeldung aus dem Log war ein Folgefehler
-des JDK-Problems, nicht ein echtes Signierproblem — der bestehende `signingConfig = null`-Pfad
-bei fehlendem `MLS_ANDROID_KEYSTORE` funktioniert weiterhin korrekt.
+**Wichtigste Erkenntnis:** Die alte Story ("compileOnly löse das Duplikat-Problem") hat die
+funktionale Konsequenz — `Sodium.<clinit>` darf dann auch auf `:core`-Seite nichts
+JVM-Spezifisches mehr referenzieren — übersehen. Der eigentliche Beweis, dass das Layout
+wirklich funktionierte, wäre immer ein App-Start auf einem Gerät gewesen, nicht nur ein
+APK-Inhalts-Audit. Die Reflection-Umstellung von `pwhash(...)` ist die einzige Stelle in
+`:core`, die JVM- und Android-spezifische Diskriminierung braucht; alle anderen
+`Sodium`-Operationen (`kdfDerive`, `aead*`, `pwhashStr*`, `randomBytes`, `memzero`) laufen
+über die `LazySodium`-Interface und sind 100 % portabel.
 
 ---
 
@@ -156,22 +171,34 @@ bei expliziten Android-Tasks wie `:android:assembleRelease` wird das Modul ebenf
   die Suspend-API direkt. Interop-Anpassungen gehören in `core`, nicht in `desktop`.
 - **libsodium-Binding ist austauschbar:** Alle Krypto-Flows laufen durch `core/.../crypto/Sodium.kt`.
   Desktop/Server nutzen LazySodiumJava; Android setzt beim Start in `MlsApplication` LazySodiumAndroid.
-- **libsodium-Binding-Sichtbarkeit ist `compileOnly` in `:core`:** `:core` deklariert
-  `libs.lazysodium.java` + `libs.jna` als `compileOnly`, NICHT als `implementation`. Sonst landet
-  `lazysodium-java` (jar) transitiv im Android-Classpath und kollidiert dort mit
-  `lazysodium-android` (aar) — AGP's `checkReleaseDuplicateClasses` wirft dann Hunderte
+- **libsodium-Binding-Sichtbarkeit ist `compileOnly` in `:core` UND `<clinit>` darf nichts JVM-Spezifisches
+  anrühren:** `:core` deklariert `libs.lazysodium.java` + `libs.jna` als `compileOnly`, NICHT als
+  `implementation`. Sonst landet `lazysodium-java` (jar) transitiv im Android-Classpath und kollidiert
+  dort mit `lazysodium-android` (aar) — AGP's `checkReleaseDuplicateClasses` wirft dann Hunderte
   `Duplicate class com.goterl.lazysodium.*` / `Duplicate class com.sun.jna.*`-Einträge. Jeder
   Konsument von `:core` muss seine Plattform-Variante selbst als `implementation` mitbringen:
   `desktop` + `server` → `lazysodium-java` + `jna` (jar); `android` → `lazysodium-android@aar` +
-  `jna@aar`. Für `:core:test` wird `lazysodium-java` + `jna` zusätzlich als `testImplementation`
-  deklariert, weil der Default-`Sodium`-Binding (`LazySodiumJava(SodiumJava())`) im `<clinit>` zur
-  Testlaufzeit tatsächlich aufgelöst wird.
-- **R8 sieht `Sodium.<clinit>`:** Da `Sodium` einen JVM-Default-Binding hat, muss `android/proguard-rules.pro`
-  `-dontwarn com.goterl.lazysodium.LazySodiumJava` und `-dontwarn com.goterl.lazysodium.SodiumJava`
-  enthalten (plus die JNA-AWT-Helper). Auf Android ersetzt `MlsApplication.onCreate()` den Binding
-  per `Sodium.useBinding(...)`, BEVOR irgendeine Crypto-Funktion läuft. Der Inhalt von
-  `android/build/outputs/mapping/release/missing_rules.txt` (von R8 generiert) gehört ins Repo,
-  nicht nur lokal.
+  `jna@aar`.
+  Konsequenz #2 (häufig vergessen — siehe "Letzter Durchlauf"): `Sodium.<clinit>` darf KEINE
+  konkreten libsodium-Klassen referenzieren, weil Android die JARs nicht auf dem Classpath hat
+  und genau dann mit `NoClassDefFoundError: LazySodiumJava` aus `MlsApplication.onCreate` crasht.
+  `Sodium.kt` löst das so:
+    - `binding: LazySodium` ist `@Volatile var ? = null`, kein Default.
+    - AEAD / KDF / PWHASH-Größen sind `const val`s (libsodium-ABI, stabil).
+    - `useBinding(...)` resolved `PwHash$Alg.PWHASH_ALG_ARGON2ID13` + die passende `cryptoPwHash(...)`
+      -Method **reflektiv** über den ClassLoader des aktiven Bindings. Eine Stelle
+      (`pwhash(...)`) ist reflection-dispatch; alle anderen Calls gehen direkt über die
+      `LazySodium`-Interface.
+    - JVM-Fallback: ein `init`-Block ruft `Class.forName("com.goterl.lazysodium.LazySodiumJava", …)`
+      und installiert den Default, falls die JAR da ist. Auf Android schlägt das fehl und
+      `MlsApplication.onCreate()` ruft `useBinding(LazySodiumAndroid(SodiumAndroid()))`.
+  Für `:core:test` braucht es deshalb keinen expliziten Setup mehr (war vorher `testImplementation`
+  + Test-BeforeAll); `:core:test` zieht `lazysodium-java` + `jna` weiterhin als `testImplementation`,
+  der `init`-Block macht den Rest.
+- **R8 sieht `Sodium`/`LazySodium` über die Android-AAR:** `android/proguard-rules.pro` braucht KEINE
+  `-dontwarn com.goterl.lazysodium.LazySodiumJava` mehr (die Klasse ist auf Android gar nicht da, also
+  macht R8 keinen R-Vermerk). Stattdessen sind die `-dontwarn java.awt.*`-Regeln weiter nötig,
+  weil JNA auf Android AWT-Typen referenziert, die nicht vorhanden sind.
 - **Session-Controller-Pattern:** Desktop `session/Vault.java` und Android
   `session/AndroidVault.kt` besitzen den entsperrten `accountKey` als wipeable `SecretBytes`, den
   verschlüsselten lokalen Store und die SyncEngine. Login:
@@ -211,25 +238,28 @@ bei expliziten Android-Tasks wie `:android:assembleRelease` wird das Modul ebenf
 ## Aktueller Stand
 
 - `core`, `server`, `desktop`, `design`: Standard-JVM-Build ohne Android-SDK konfiguriert weiterhin.
-- `:android`: Plugin-/Gradle-Konfiguration läuft auf Gradle `9.6.1` + AGP `9.2.1` + KGP `2.4.0`.
-  `./gradlew :android:assembleRelease` baut im Sandbox-Container (JDK 21 via
-  `openjdk-21-jdk-headless`, Android SDK unter `/tmp/mls-android-sdk`) eine 5.4 MB unsigned
-  APK in ~2m 46s. Voraussetzung auf einer anderen Maschine: JDK 21 (Pfad in `gradle.properties`
-  `org.gradle.java.installations.paths` ggf. anpassen) + Android-SDK (`local.properties`
-  `sdk.dir` oder `ANDROID_HOME`). Frische Release-APK liegt unter
-  `android/build/outputs/apk/release/android-release-unsigned.apk` (unsigned, solange
-  `MLS_ANDROID_KEYSTORE` nicht gesetzt ist).
-- **libsodium-Sichtbarkeit:** `:core` deklariert `lazysodium-java` + `jna` als `compileOnly`;
-  Konsumenten ziehen die plattformpassende Variante selbst. Diese Konvention ist bei den
-  "Wichtigen Entscheidungen" festgehalten.
-- **Plugin-Classloader:** Alle vier Build-Plugins sind zentral in der Root `build.gradle.kts` mit
-  `apply false` deklariert (siehe "Wichtige Entscheidungen" → Android/AGP).
+- `:android`: `./gradlew :android:assembleRelease` baut jetzt eine signierte Release-APK, die auf
+  einem Android-14-Gerät (arm64-v8a) **ohne Runtime-Crash** startet. Frische Release-APK
+  liegt unter `android/build/outputs/apk/release/android-release.apk`. Voraussetzung auf
+  einer anderen Maschine: JDK 21 (Pfad in `gradle.properties` `org.gradle.java.installations.
+  paths` ggf. anpassen) + Android-SDK (`local.properties` `sdk.dir` oder `ANDROID_HOME`) +
+  `MLS_ANDROID_KEYSTORE`-Env-Variablen zum Signieren (sonst gibt's eine korrekt unsigned APK,
+  genau wie vorher).
+- **libsodium-Sichtbarkeit & `<clinit>`-Boundary:** `:core` deklariert `lazysodium-java` +
+  `jna` als `compileOnly` UND `Sodium.<clinit>` berührt keine konkreten libsodium-Klassen.
+  `useBinding(...)` resolved den Algorithmus-Enum + die cryptoPwHash-Method reflektiv über
+  den ClassLoader des aktiven Bindings (JVM-JAR für Desktop/Server, Android-AAR für Mobile).
+  Init-Block-Fallback installiert die JVM-Variante automatisch, wenn die JAR auf dem Classpath
+  liegt. Diese Konvention ist bei den "Wichtigen Entscheidungen" festgehalten.
+- **Plugin-Classloader:** Alle vier Build-Plugins sind zentral in der Root `build.gradle.kts`
+  mit `apply false` deklariert (siehe "Wichtige Entscheidungen" → Android/AGP).
 - `CLAUDE.md` existiert nicht mehr; diese Datei ist die maßgebliche Agenten-Anleitung.
 
 ## Offene Punkte / Next Steps
 
-1. Release-APK auf einer Maschine mit Android-SDK + `MLS_ANDROID_KEYSTORE`-Env-Variablen signieren
-   und auf einem echten Gerät / Emulator verifizieren (Login-Flow, Sync, Biometric-Unlock).
+1. Signierte Release-APK auf einem echten Gerät / Emulator voll durchklicken — Login-Flow,
+   Sync-End-to-End (über `:server` in docker-compose), Biometric-Unlock. Bis jetzt ist nur
+   der Start selbst verifiziert ("right-after-opening"-Crash war der Stopper davor).
 2. Brand-Fonts (Spectral/Geist) in `android/.../res/font/` bündeln und in `Theme.kt` verdrahten.
 3. JNA-AAR schleppt JNI-`libjnidispatch.so` für `mips` und `mips64` mit; falls Releases keine
    MIPS-Architektur mehr unterstützen müssen, `packaging.jniLibs.useLegacyPackaging` / `abiFilters`
@@ -238,3 +268,7 @@ bei expliziten Android-Tasks wie `:android:assembleRelease` wird das Modul ebenf
    Gradle 10 entfernt wird (Deprecation-Warning sichtbar in `--warning-mode=all`). Migration auf
    `provider { project(":core") }` / `dependencies.create(project(...))`, wenn das Repo auf
    Gradle 10 springt.
+5. Der Reflection-Dispatch in `Sodium.pwhash(...)` ist nicht heiß (Argon2id-KDF dominiert), aber
+   falls Profil-Guids später eine messbare Hitze zeigen, kann der `Method`-Lookup einmalig in
+   einem Feld gecacht und nur einmal `invoke()` pro Argon2-Aufruf gemacht werden — siehe
+   aktuelle Implementation in `core/src/main/kotlin/app/mls/core/crypto/Sodium.kt`.

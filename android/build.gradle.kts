@@ -64,6 +64,12 @@ android {
     }
 }
 
+// `:core` declares `lazysodium-java` + `jna` as `compileOnly` (no JVM jars reach Android's
+// classpath) and the Android build pulls in `lazysodium-android@aar` + `jna@aar` directly below.
+// No `configurations.all { exclude(...) }` block is needed here: Gradle's variant resolution
+// gives Android the AAR variants and never pulls in JVM-jar equivalents for a `compileOnly`
+// dependency that has no concrete Java-coordinates variant at the consumer.
+
 kotlin {
     compilerOptions {
         jvmTarget = org.jetbrains.kotlin.gradle.dsl.JvmTarget.JVM_17
