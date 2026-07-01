@@ -23,6 +23,27 @@ This keeps SDK-less `:core`, `:server`, `:desktop`, and `:design` builds working
 3. Point the app at your server: edit `server_url` in `src/main/res/values/strings.xml`
    (`http://10.0.2.2:8080` is the host loopback as seen from the emulator).
 
+### Optional Cloudflare Access service token
+
+If the sync server is behind a Cloudflare Access Service Auth policy, inject the service token at
+build time. Environment variables take precedence:
+
+```bash
+MLS_CF_ACCESS_CLIENT_ID=... \
+MLS_CF_ACCESS_CLIENT_SECRET=... \
+./gradlew :android:assembleRelease
+```
+
+For local Android Studio builds, put the values in the gitignored root `local.properties` file:
+
+```properties
+mls.cloudflare.access.clientId=...
+mls.cloudflare.access.clientSecret=...
+```
+
+The app sends these as `CF-Access-Client-Id` and `CF-Access-Client-Secret` on every API request.
+Both values must be set together. They are embedded in the APK, so only use this for private builds.
+
 > **Version note:** `agp` in `gradle/libs.versions.toml` is pinned to an AGP 9.2.x release compatible
 > with this repo's Gradle 9.6.1 wrapper. Do not downgrade to AGP 8.x with Gradle 9.
 

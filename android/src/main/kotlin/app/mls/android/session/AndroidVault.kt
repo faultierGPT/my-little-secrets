@@ -32,9 +32,13 @@ import java.util.Properties
  * password-derived `authKey` and ciphertext ever leave; the account key lives only as wipeable
  * [SecretBytes]; the on-disk cache is encrypted.
  */
-class AndroidVault(private val filesDir: File, val serverUrl: String) {
+class AndroidVault(
+    private val filesDir: File,
+    val serverUrl: String,
+    requestHeaders: Map<String, String> = emptyMap(),
+) {
 
-    private val api = KtorApiClient(serverUrl, OkHttp.create())
+    private val api = KtorApiClient(serverUrl, OkHttp.create(), requestHeaders = requestHeaders)
 
     private var accountKey: SecretBytes? = null
     private var store: EncryptedFileNoteStore? = null

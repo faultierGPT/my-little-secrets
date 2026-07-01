@@ -41,6 +41,35 @@ class KtorApiClientTest {
     }
 
     @Test
+    fun `request headers are sent before and after login`() = runTest {
+        val seenAccessHeaders = mutableListOf<Pair<String?, String?>>()
+        val engine = MockEngine { request ->
+            seenAccessHeaders += request.headers["CF-Access-Client-Id"] to request.headers["CF-Access-Client-Secret"]
+            when (request.url.encodedPath) {
+                "/auth/login" -> respond(json.encodeToString(LoginResponse.serializer(), LoginResponse("tok-123", 999)), HttpStatusCode.OK, jsonHeader)
+                "/notes" -> respond(json.encodeToString(NotesResponse.serializer(), NotesResponse(emptyList(), 5)), HttpStatusCode.OK, jsonHeader)
+                else -> respond("{}", HttpStatusCode.OK, jsonHeader)
+            }
+        }
+        val api = KtorApiClient(
+            "http://x",
+            engine,
+            requestHeaders = mapOf(
+                "CF-Access-Client-Id" to "client-id",
+                "CF-Access-Client-Secret" to "client-secret",
+            ),
+        )
+
+        api.login(LoginRequest("e", "ak"))
+        api.getNotes(0)
+
+        assertEquals(
+            listOf("client-id" to "client-secret", "client-id" to "client-secret"),
+            seenAccessHeaders,
+        )
+    }
+
+    @Test
     fun `a non-2xx response becomes a typed ApiException`() = runTest {
         val engine = MockEngine {
             respond(json.encodeToString(ErrorResponse.serializer(), ErrorResponse("nope", "rate_limited")), HttpStatusCode.TooManyRequests, jsonHeader)

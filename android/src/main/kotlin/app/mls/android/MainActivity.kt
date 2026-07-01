@@ -24,7 +24,7 @@ import app.mls.android.ui.theme.MlsTheme
 class MainActivity : FragmentActivity() {
 
     private val viewModel: VaultViewModel by viewModels {
-        VaultViewModel.factory(applicationContext, getString(R.string.server_url))
+        VaultViewModel.factory(applicationContext, getString(R.string.server_url), cloudflareAccessHeaders())
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -44,5 +44,18 @@ class MainActivity : FragmentActivity() {
         super.onStop()
         // Re-lock when the app leaves the foreground; a fresh unlock is required to return.
         viewModel.lock()
+    }
+
+    private fun cloudflareAccessHeaders(): Map<String, String> {
+        val clientId = BuildConfig.CF_ACCESS_CLIENT_ID
+        val clientSecret = BuildConfig.CF_ACCESS_CLIENT_SECRET
+        return if (clientId.isNotBlank() && clientSecret.isNotBlank()) {
+            mapOf(
+                "CF-Access-Client-Id" to clientId,
+                "CF-Access-Client-Secret" to clientSecret,
+            )
+        } else {
+            emptyMap()
+        }
     }
 }

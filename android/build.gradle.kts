@@ -1,3 +1,5 @@
+import java.util.Properties
+
 // NOTE: settings.gradle.kts includes this module only when an Android SDK is configured or an
 // Android task is requested explicitly. That keeps SDK-less JVM builds working while still allowing
 // direct commands such as `./gradlew :android:assembleRelease`.
@@ -7,6 +9,34 @@ plugins {
     alias(libs.plugins.android.application)
     // AGP 9 provides built-in Kotlin support. Do not apply org.jetbrains.kotlin.android here.
     alias(libs.plugins.kotlin.compose)
+}
+
+val localProperties = Properties().apply {
+    val file = rootProject.file("local.properties")
+    if (file.isFile) file.inputStream().use(::load)
+}
+
+fun secretSetting(envName: String, propertyName: String): String =
+    System.getenv(envName)?.takeIf { it.isNotBlank() }
+        ?: localProperties.getProperty(propertyName)?.takeIf { it.isNotBlank() }
+        ?: ""
+
+fun buildConfigString(value: String): String =
+    "\"" + value
+        .replace("\\", "\\\\")
+        .replace("\"", "\\\"")
+        .replace("\n", "\\n")
+        .replace("\r", "\\r") + "\""
+
+val cfAccessClientId = secretSetting("MLS_CF_ACCESS_CLIENT_ID", "mls.cloudflare.access.clientId")
+val cfAccessClientSecret = secretSetting("MLS_CF_ACCESS_CLIENT_SECRET", "mls.cloudflare.access.clientSecret")
+
+if (cfAccessClientId.isBlank() != cfAccessClientSecret.isBlank()) {
+    throw org.gradle.api.GradleException(
+        "Set both MLS_CF_ACCESS_CLIENT_ID and MLS_CF_ACCESS_CLIENT_SECRET, " +
+            "or both local.properties keys mls.cloudflare.access.clientId and " +
+            "mls.cloudflare.access.clientSecret.",
+    )
 }
 
 android {
@@ -19,10 +49,13 @@ android {
         targetSdk = 35
         versionCode = 1
         versionName = "0.1.0"
+        buildConfigField("String", "CF_ACCESS_CLIENT_ID", buildConfigString(cfAccessClientId))
+        buildConfigField("String", "CF_ACCESS_CLIENT_SECRET", buildConfigString(cfAccessClientSecret))
     }
 
     buildFeatures {
         compose = true
+        buildConfig = true
     }
 
     compileOptions {

@@ -43,7 +43,16 @@ class KtorApiClient @JvmOverloads constructor(
     private val baseUrl: String,
     engine: HttpClientEngine = CIO.create(),
     override var token: String? = null,
+    requestHeaders: Map<String, String> = emptyMap(),
 ) : MlsApi, AutoCloseable {
+
+    private val staticRequestHeaders = requestHeaders
+        .filter { (name, value) -> name.isNotBlank() && value.isNotBlank() }
+        .also { headers ->
+            require(headers.keys.none { it.equals(HttpHeaders.Authorization, ignoreCase = true) }) {
+                "requestHeaders must not include Authorization; use token for API bearer auth"
+            }
+        }
 
     private val client = HttpClient(engine) {
         expectSuccess = false
@@ -52,22 +61,29 @@ class KtorApiClient @JvmOverloads constructor(
         }
     }
 
+    private fun HttpRequestBuilder.staticHeaders() {
+        staticRequestHeaders.forEach { (name, value) -> header(name, value) }
+    }
+
     private fun HttpRequestBuilder.auth() {
+        staticHeaders()
         token?.let { header(HttpHeaders.Authorization, "Bearer $it") }
     }
 
     override suspend fun register(req: RegisterRequest) {
-        client.post("$baseUrl/auth/register") { contentType(ContentType.Application.Json); setBody(req) }.ensureSuccess()
+        client.post("$baseUrl/auth/register") {
+            staticHeaders(); contentType(ContentType.Application.Json); setBody(req)
+        }.ensureSuccess()
     }
 
     override suspend fun loginParams(email: String): LoginParamsResponse =
         client.post("$baseUrl/auth/login/params") {
-            contentType(ContentType.Application.Json); setBody(LoginParamsRequest(email))
+            staticHeaders(); contentType(ContentType.Application.Json); setBody(LoginParamsRequest(email))
         }.ensureSuccess().body()
 
     override suspend fun login(req: LoginRequest): LoginResponse {
         val resp = client.post("$baseUrl/auth/login") {
-            contentType(ContentType.Application.Json); setBody(req)
+            staticHeaders(); contentType(ContentType.Application.Json); setBody(req)
         }.ensureSuccess().body<LoginResponse>()
         token = resp.token
         return resp
