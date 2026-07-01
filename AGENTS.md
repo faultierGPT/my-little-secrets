@@ -6,6 +6,54 @@ damit ein anderer Agent nahtlos weiterarbeiten kann.
 
 ---
 
+**Aufgabe:** `docker compose up -d --build` schlug im Server-Build-Step fehl mit
+`Configuring project ':desktop' without an existing directory is not allowed. The configured
+projectDirectory '/src/desktop' does not exist`. `:core`, `:server`, `:design` bauten grün, der
+Crash kam beim Konfigurieren von `:desktop` während `:server:installDist`.
+
+**Ursache:** Kontext- vs. Settings-Diskrepanz. `.dockerignore` exkludiert `desktop/` und
+`android/` aus dem Docker-Build-Kontext (sinnvoll — ein JavaFX-Client und ein Compose-Modul
+gehören nicht in ein Server-Image und würden den Kontext aufblähen). `settings.gradle.kts`
+hatte `:desktop` aber unconditional via `include(":desktop")` deklariert, und Gradle 9.6.1
+wirft bei fehlendem Projektverzeichnis einen harten Konfigurationsfehler — auch wenn der Task
+`:desktop` gar nicht anfordert. Der `:android`-Fall war schon korrekt gelöst (conditional auf
+`androidSdkPath()`/Task-Request); `:desktop` lief noch in der alten, nicht-bedingten Form.
+
+**Fix — zwei Schichten, weil "nur das include" allein nicht reicht:**
+
+1. `settings.gradle.kts`: `include(":desktop")` ist jetzt hinter `if (file("desktop").isDirectory)`
+   (analog zu `:android`). In einer normalen Dev-Checkout ist das Verzeichnis da → `:desktop`
+   wird konfiguriert, alles wie vorher. Im Docker-Build-Kontext ist es gestrippt → `:desktop`
+   wird gar nicht erst included, der Konfigurationsfehler verschwindet.
+2. `server/Dockerfile`: `./gradlew :server:installDist` bekommt `--configure-on-demand`. Damit
+   konfiguriert Gradle nur noch `:server` und seine transitiven Project-Dependencies (`:core`).
+   `:design`, `:desktop` (wenn included), `:android` (wenn included) werden gar nicht erst
+   konfiguriert — kein Aufwand für Module, die der Server-Task nicht braucht. Auf einer
+   normalen Dev-Maschine ist der Flag ein No-op: die Module werden unabhängig vom Flag
+   konfiguriert, wenn ihr Verzeichnis da ist; die Tasks, die wir nicht anfordern, werden
+   einfach nicht ausgeführt.
+
+**Verifikation:**
+
+- `./gradlew projects --no-daemon --console=plain` → zeigt `:core`, `:design`, `:desktop`,
+  `:server` (lokaler Dev-Kontext, alle Verzeichnisse da).
+- `./gradlew :server:installDist --no-daemon --configure-on-demand --console=plain`
+  → `BUILD SUCCESSFUL`, nur `:core` + `:server` Tasks in der Konsole.
+- `./gradlew :core:test :server:test :design:test --no-daemon --console=plain`
+  → `BUILD SUCCESSFUL` (unverändertes Verhalten für die JVM-Suite).
+- `docker compose build` → `Image ...-server Built`, kein `failed to solve:`.
+- `docker compose up -d` → beide Container starten, db healthy, server `GET /health -> 200`,
+  Ktor lauscht auf `0.0.0.0:8080`, Hikari-Pool gegen Postgres sauber.
+
+**Wichtigste Erkenntnis:** Gradle 9 bricht hart ab, wenn ein included-Project-Verzeichnis
+fehlt — auch wenn der angefragte Task das Projekt gar nicht braucht. Die saubere Antwort
+ist, das include an die Verzeichnis-Existenz zu koppeln UND in Docker-Builds explizit
+`--configure-on-demand` zu setzen, damit die Build-Konfiguration nur das konfiguriert, was
+der angefragte Task wirklich braucht. Die AGENTS-Konvention dazu steht jetzt bei
+"Wichtige Entscheidungen" (Conditional includes + Docker-Build-Filter).
+
+---
+
 ## Letzter Durchlauf
 
 **Aufgabe:** Signierte Release-APK (Android 14, arm64-v8a) startete auf dem Gerät und crashte
@@ -164,6 +212,21 @@ bei expliziten Android-Tasks wie `:android:assembleRelease` wird das Modul ebenf
 
 ## Wichtige Entscheidungen
 
+- **Conditional project-includes in `settings.gradle.kts`:** `:android` UND `:desktop` werden nur
+  included, wenn ihr Verzeichnis da ist bzw. wenn ein Android-SDK/Task vorliegt. Hintergrund:
+  Gradle 9 wirft einen harten Konfigurationsfehler, wenn ein `include(...)` auf ein fehlendes
+  Verzeichnis zeigt — auch wenn der angefragte Task das Modul gar nicht braucht. Der
+  Server-Docker-Build exkludiert `desktop/` und `android/` per `.dockerignore` (sie sind nicht
+  Teil des Server-Images und würden den Build-Kontext unnötig aufblähen), also MUSS das
+  include in `settings.gradle.kts` an die Verzeichnis-Existenz gekoppelt sein, sonst bricht
+  `docker compose build`. Auf einer normalen Dev-Maschine verhalten sich die conditional
+  includes transparent — die Verzeichnisse sind da, die Module werden konfiguriert.
+- **Docker-Builds filtern mit `--configure-on-demand`:** `server/Dockerfile` ruft
+  `./gradlew :server:installDist --no-daemon --configure-on-demand`. Damit konfiguriert Gradle
+  nur `:server` und seine transitiven Project-Dependencies (`:core`) — auch wenn
+  `settings.gradle.kts` (in einem Dev-Kontext) noch `:design`/`:desktop`/`:android` includen
+  würde. Auf der Dev-Maschine ist der Flag ein No-op; im Container ist er die Versicherung,
+  dass fehlende oder irrelevante Module den Server-Build nicht aufhalten.
 - **Eine Krypto-Quelle:** Krypto lebt nur in `core/`, von beiden Clients geteilt. Nie im Client
   reimplementieren.
 - **Suspend-Interop:** Desktop ist 100 % Java und kann keine `suspend`-Funktionen aufrufen. Es nutzt

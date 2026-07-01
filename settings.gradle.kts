@@ -37,7 +37,14 @@ dependencyResolutionManagement {
 include(":core")
 include(":server")
 include(":design")
-include(":desktop")
+
+// :desktop is included when its source tree is on disk. In the server's Docker build the
+// `desktop/` directory is excluded by `.dockerignore` (it's a JavaFX client, irrelevant to a
+// server image and would bloat the build context). Skipping the include keeps `server:installDist`
+// from failing on a missing :desktop project directory in that environment.
+if (file("desktop").isDirectory) {
+    include(":desktop")
+}
 
 if (androidSdkPath() != null || androidTaskRequested) {
     include(":android")
